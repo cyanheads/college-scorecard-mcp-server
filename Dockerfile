@@ -4,23 +4,21 @@
 # This stage installs all dependencies (including dev), builds the TypeScript
 # source code into JavaScript, and prepares the production assets.
 # ==============================================================================
-FROM node:24-slim AS build
+FROM oven/bun:1.3 AS build
 
 WORKDIR /usr/src/app
 
 # Copy dependency manifests for optimized layer caching
 COPY package.json bun.lock ./
 
-# Install all dependencies (including dev dependencies for building).
-# npm install resolves platform-specific optional deps (esbuild Linux binaries
-# required by tsx) correctly for the container's target architecture.
-RUN npm install
+# Install all dependencies (including dev dependencies for building)
+RUN bun install --frozen-lockfile
 
 # Copy the rest of the source code
 COPY . .
 
 # Build the application
-RUN npm run build
+RUN bun run build
 
 
 # ==============================================================================
@@ -42,6 +40,7 @@ ENV NODE_ENV=production
 LABEL org.opencontainers.image.title="college-scorecard-mcp-server"
 LABEL org.opencontainers.image.description="Search, compare, and analyze U.S. college data — costs, earnings, programs, and outcomes — via MCP."
 LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/cyanheads/college-scorecard-mcp-server"
 
 # Copy dependency manifests
 COPY package.json bun.lock ./

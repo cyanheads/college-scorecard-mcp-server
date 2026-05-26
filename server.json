@@ -6,14 +6,14 @@
     "url": "https://github.com/cyanheads/college-scorecard-mcp-server",
     "source": "github"
   },
-  "version": "0.1.3",
+  "version": "0.1.4",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/college-scorecard-mcp-server",
       "runtimeHint": "node",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "packageArguments": [
         {
           "type": "positional",
@@ -25,6 +25,12 @@
         }
       ],
       "environmentVariables": [
+        {
+          "name": "SCORECARD_API_KEY",
+          "description": "Required API key for the College Scorecard API. Free registration at https://api.data.gov/signup/. Rate limit: 1,000 requests/hour.",
+          "format": "string",
+          "isRequired": true
+        },
         {
           "name": "MCP_LOG_LEVEL",
           "description": "Sets the minimum log level for output (e.g., 'debug', 'info', 'warn').",
@@ -42,7 +48,7 @@
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@cyanheads/college-scorecard-mcp-server",
       "runtimeHint": "node",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "packageArguments": [
         {
           "type": "positional",

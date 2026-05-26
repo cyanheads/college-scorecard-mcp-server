@@ -2,6 +2,14 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.4](changelog/0.1.x/0.1.4.md) — 2026-05-26
+
+Package metadata alignment: author, funding, FUNDING.yml, README install badges, Dockerfile build stage, manifest.json, server.json, scripts use bun run.
+
+## [0.1.3](changelog/0.1.x/0.1.3.md) — 2026-05-25
+
+Dockerfile build stage switched to node:24-slim for tsx compatibility.
+
 ## [0.1.2](changelog/0.1.x/0.1.2.md) — 2026-05-25
 
 Add mcpName field and publish-mcp script for MCP Registry publication.

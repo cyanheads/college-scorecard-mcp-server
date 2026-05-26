@@ -1,9 +1,15 @@
 {
   "manifest_version": "0.3",
   "name": "college-scorecard-mcp-server",
-  "version": "0.1.2",
-  "description": "",
-  "author": { "name": "" },
+  "version": "0.1.4",
+  "description": "Search, compare, and analyze U.S. college data — costs, earnings, programs, and outcomes.",
+  "author": { "name": "cyanheads" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cyanheads/college-scorecard-mcp-server"
+  },
+  "homepage": "https://github.com/cyanheads/college-scorecard-mcp-server#readme",
+  "license": "Apache-2.0",
   "server": {
     "type": "node",
     "entry_point": "dist/index.js",
@@ -13,7 +19,8 @@
       "env": {
         "MCP_TRANSPORT_TYPE": "stdio",
         "MCP_AUTH_MODE": "none",
-        "NODE_ENV": "production"
+        "NODE_ENV": "production",
+        "SCORECARD_API_KEY": "${user_config.scorecard_api_key}"
       }
     }
   },
@@ -22,5 +29,13 @@
   },
   "tools_generated": true,
   "prompts_generated": true,
-  "user_config": {}
+  "user_config": {
+    "scorecard_api_key": {
+      "type": "string",
+      "title": "College Scorecard API Key",
+      "description": "Required API key for the College Scorecard API. Free registration at https://api.data.gov/signup/. Rate limit: 1,000 requests/hour.",
+      "required": true,
+      "sensitive": true
+    }
+  }
 }
