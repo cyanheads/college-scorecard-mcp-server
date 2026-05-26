@@ -127,7 +127,7 @@ describe('getEarningsTool', () => {
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('University of Washington');
     expect(text).toContain('50,000');
-    expect(text).toContain('earnings_6yr_median');
-    expect(text).toContain('earnings_10yr_median');
+    expect(text).toContain('6-Year Median');
+    expect(text).toContain('10-Year Median');
   });
 });

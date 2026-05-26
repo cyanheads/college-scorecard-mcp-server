@@ -183,19 +183,13 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
     if (result.suppressed) {
       lines.push(`> **Suppressed:** ${result.suppression_note ?? 'Earnings data not available.'}`);
     }
-    lines.push(`6-Year Median (earnings_6yr_median): ${fmt(c.earnings_6yr_median)}`);
-    lines.push(
-      `6-Year P25 (earnings_6yr_p25): ${fmt(c.earnings_6yr_p25)} / P75 (earnings_6yr_p75): ${fmt(c.earnings_6yr_p75)}`,
-    );
-    lines.push(`8-Year Median (earnings_8yr_median): ${fmt(c.earnings_8yr_median)}`);
-    lines.push(`10-Year Median (earnings_10yr_median): ${fmt(c.earnings_10yr_median)}`);
-    lines.push(
-      `10-Year P25 (earnings_10yr_p25): ${fmt(c.earnings_10yr_p25)} / P75 (earnings_10yr_p75): ${fmt(c.earnings_10yr_p75)}`,
-    );
-    lines.push(
-      `6-Year Female Median (earnings_6yr_female_median): ${fmt(c.earnings_6yr_female_median)}`,
-    );
-    lines.push(`6-Year Male Median (earnings_6yr_male_median): ${fmt(c.earnings_6yr_male_median)}`);
+    lines.push(`6-Year Median: ${fmt(c.earnings_6yr_median)}`);
+    lines.push(`6-Year P25/P75: ${fmt(c.earnings_6yr_p25)} / ${fmt(c.earnings_6yr_p75)}`);
+    lines.push(`8-Year Median: ${fmt(c.earnings_8yr_median)}`);
+    lines.push(`10-Year Median: ${fmt(c.earnings_10yr_median)}`);
+    lines.push(`10-Year P25/P75: ${fmt(c.earnings_10yr_p25)} / ${fmt(c.earnings_10yr_p75)}`);
+    lines.push(`6-Year Female Median: ${fmt(c.earnings_6yr_female_median)}`);
+    lines.push(`6-Year Male Median: ${fmt(c.earnings_6yr_male_median)}`);
     if (result.trend && result.trend.length > 0) {
       lines.push('\n**Historical Trend (by Entry Year)**');
       for (const row of result.trend) {

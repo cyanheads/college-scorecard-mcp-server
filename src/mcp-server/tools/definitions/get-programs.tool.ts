@@ -138,7 +138,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       filtered = filtered.filter((p) => p.code === input.cip_code);
     }
     if (input.credential_level != null) {
-      filtered = filtered.filter((p) => p.credential_level === input.credential_level);
+      filtered = filtered.filter((p) => p.credential?.level === input.credential_level);
     }
 
     const programs = filtered.map((p): z.infer<typeof ProgramSchema> => {
@@ -147,7 +147,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       return {
         code: p.code ?? 'Unknown',
         ...(p.title && { title: p.title }),
-        credential_level: credentialLabel(p.credential_level),
+        credential_level: credentialLabel(p.credential?.level),
         ...(rawEarnings != null && { earnings_1yr_median: rawEarnings }),
         ...(p.earnings?.highest?.['1_yr']?.overall_count_titleiv != null && {
           earnings_count: p.earnings.highest['1_yr'].overall_count_titleiv as number,

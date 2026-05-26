@@ -164,7 +164,8 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
         : undefined;
 
     const median_debt = costRecord['latest.aid.median_debt.completers.overall'] ?? undefined;
-    const repayment_rate_3yr = costRecord['latest.repayment.3_yr_repayment.overall'] ?? undefined;
+    const rawRepayment = costRecord['latest.repayment.3_yr_repayment.overall'];
+    const repayment_rate_3yr = rawRepayment != null ? rawRepayment / 1000 : undefined;
     const graduation_rate = costRecord['latest.completion.rate_suppressed.overall'] ?? undefined;
 
     const earnings_6yr_median =

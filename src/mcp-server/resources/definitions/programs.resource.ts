@@ -40,7 +40,7 @@ export const programsResource = resource('scorecard://programs/{id}', {
     const programs = rawPrograms.map((p) => ({
       code: p.code,
       title: p.title,
-      credential_level: p.credential_level,
+      credential_level: p.credential?.level ?? null,
       earnings_1yr_median: p.earnings?.highest?.['1_yr']?.overall_median_earnings ?? null,
       median_debt: p.debt?.median_debt ?? null,
       enrollment: p.counts?.ipeds_enrollment ?? null,

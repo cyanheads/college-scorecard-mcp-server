@@ -151,8 +151,7 @@ describe('compareSchoolsTool', () => {
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('University of Washington');
     expect(text).toContain('In-State Tuition');
-    expect(text).toContain('value:');
-    expect(text).toContain('rank:');
+    expect(text).toContain('(#1)');
     expect(text).toContain('11,839');
   });
 });

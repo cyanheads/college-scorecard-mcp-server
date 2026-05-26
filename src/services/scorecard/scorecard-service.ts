@@ -226,7 +226,8 @@ export class ScorecardService {
     }
     if (options.zip) params.zip = options.zip;
     if (options.distance) params.distance = options.distance;
-    if (options.cipCode) params['latest.programs.cip_4_digit.code'] = options.cipCode;
+    if (options.cipCode)
+      params['latest.programs.cip_4_digit.code'] = options.cipCode.replace('.', '');
     if (options.sort) params.sort = options.sort;
     if (options.extraParams) {
       for (const [k, v] of Object.entries(options.extraParams)) {
@@ -269,7 +270,7 @@ export class ScorecardService {
     };
 
     if (cipCode) {
-      params['latest.programs.cip_4_digit.code'] = cipCode;
+      params['latest.programs.cip_4_digit.code'] = cipCode.replace('.', '');
     }
 
     return this.fetchApi(params, ctx);
@@ -328,7 +329,8 @@ export class ScorecardService {
       page: options.page ?? 0,
     };
 
-    if (options.cipCode) params['latest.programs.cip_4_digit.code'] = options.cipCode;
+    if (options.cipCode)
+      params['latest.programs.cip_4_digit.code'] = options.cipCode.replace('.', '');
     if (options.state) params['school.state'] = options.state;
     if (options.ownership != null) params['school.ownership'] = options.ownership;
     if (options.maxNetPrice != null)

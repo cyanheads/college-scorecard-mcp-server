@@ -9,7 +9,7 @@ export interface RawProgram {
   counts?: {
     ipeds_enrollment?: number | null;
   };
-  credential_level?: number | null;
+  credential?: { level?: number | null; title?: string | null };
   debt?: {
     median_debt?: number | null;
   };

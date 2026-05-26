@@ -144,6 +144,8 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       unit?: string;
       higherIsBetter: boolean;
       note?: string;
+      /** Multiply raw API value by this factor before use (e.g. 1/1000 for scaled integers) */
+      scale?: number;
     };
     const metricsByTopic: Record<string, MetricDef[]> = {
       costs: [
@@ -266,6 +268,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           key: 'latest.repayment.3_yr_repayment.overall',
           unit: '%',
           higherIsBetter: true,
+          scale: 1 / 1000,
         },
         {
           metric: 'Median Debt at Graduation',
@@ -299,6 +302,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           key: 'latest.repayment.3_yr_repayment.overall',
           unit: '%',
           higherIsBetter: true,
+          scale: 1 / 1000,
         },
         {
           metric: 'Avg Net Price (overall)',
@@ -315,7 +319,8 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         const r = byId.get(String(s.id));
         if (!r) return null;
         const raw = r[m.key] as number | null | undefined;
-        return raw ?? null;
+        if (raw == null) return null;
+        return m.scale != null ? raw * m.scale : raw;
       });
 
       const ranks = computeRanks(rawValues, m.higherIsBetter);
@@ -388,11 +393,9 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         } else {
           valueDisplay = 'N/A';
         }
-        const rankDisplay = v.rank != null ? String(v.rank) : 'N/A';
+        const rankDisplay = v.rank != null ? `#${v.rank}` : 'N/A';
         const suppressedLabel = v.suppressed ? ' (suppressed)' : '';
-        lines.push(
-          `  ${schoolName} (school_id: ${v.school_id}): value: ${valueDisplay} rank: ${rankDisplay}${suppressedLabel}`,
-        );
+        lines.push(`  ${schoolName}: ${valueDisplay} (${rankDisplay})${suppressedLabel}`);
       }
     }
     return [{ type: 'text', text: lines.join('\n') }];

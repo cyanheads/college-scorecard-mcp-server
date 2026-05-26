@@ -237,7 +237,7 @@ export const getSchoolTool = tool('scorecard_get_school', {
           federal_loan_rate: r['latest.aid.federal_loan_rate'],
         }),
         ...(r['latest.repayment.3_yr_repayment.overall'] != null && {
-          repayment_rate_3yr: r['latest.repayment.3_yr_repayment.overall'],
+          repayment_rate_3yr: (r['latest.repayment.3_yr_repayment.overall'] as number) / 1000,
         }),
         ...(r['latest.completion.rate_suppressed.overall'] != null && {
           completion_rate: r['latest.completion.rate_suppressed.overall'],
