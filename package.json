@@ -1,6 +1,6 @@
 {
   "name": "@cyanheads/college-scorecard-mcp-server",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Search, compare, and analyze U.S. college data — costs, earnings, programs, and outcomes — via MCP. STDIO or Streamable HTTP.",
   "mcpName": "io.github.cyanheads/college-scorecard-mcp-server",
   "type": "module",
