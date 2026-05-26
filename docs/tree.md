@@ -1,6 +1,6 @@
 # college-scorecard-mcp-server - Directory Structure
 
-Generated on: 2026-05-26 00:19:25
+Generated on: 2026-05-26 03:15:44
 
 ```text
 college-scorecard-mcp-server/
@@ -104,26 +104,50 @@ college-scorecard-mcp-server/
 │   └── tool-defs-analysis/
 │       └── SKILL.md
 ├── src/
+│   ├── config/
+│   │   └── server-config.ts
+│   ├── data/
 │   ├── mcp-server/
 │   │   ├── prompts/
 │   │   │   └── definitions/
-│   │   │       └── echo.prompt.ts
+│   │   │       └── compare.prompt.ts
 │   │   ├── resources/
 │   │   │   └── definitions/
-│   │   │       ├── echo-app-ui.app-resource.ts
-│   │   │       └── echo.resource.ts
-│   │   └── tools/
-│   │       └── definitions/
-│   │           ├── echo-app.app-tool.ts
-│   │           └── echo.tool.ts
+│   │   │       ├── programs.resource.ts
+│   │   │       └── school.resource.ts
+│   │   ├── tools/
+│   │   │   └── definitions/
+│   │   │       ├── compare-schools.tool.ts
+│   │   │       ├── get-earnings.tool.ts
+│   │   │       ├── get-programs.tool.ts
+│   │   │       ├── get-school.tool.ts
+│   │   │       ├── list-fields.tool.ts
+│   │   │       ├── lookup-cip.tool.ts
+│   │   │       ├── search-programs.tool.ts
+│   │   │       ├── search-schools.tool.ts
+│   │   │       └── value-analysis.tool.ts
+│   │   └── format-helpers.ts
+│   ├── services/
+│   │   └── scorecard/
+│   │       ├── scorecard-service.ts
+│   │       └── types.ts
 │   └── index.ts
 ├── tests/
 │   ├── prompts/
-│   │   └── echo.prompt.test.ts
+│   │   └── compare.prompt.test.ts
 │   ├── resources/
-│   │   └── echo.resource.test.ts
+│   │   ├── programs.resource.test.ts
+│   │   └── school.resource.test.ts
 │   └── tools/
-│       └── echo.tool.test.ts
+│       ├── compare-schools.tool.test.ts
+│       ├── get-earnings.tool.test.ts
+│       ├── get-programs.tool.test.ts
+│       ├── get-school.tool.test.ts
+│       ├── list-fields.tool.test.ts
+│       ├── lookup-cip.tool.test.ts
+│       ├── search-programs.tool.test.ts
+│       ├── search-schools.tool.test.ts
+│       └── value-analysis.tool.test.ts
 ├── .dockerignore
 ├── .env.example
 ├── .gitignore
