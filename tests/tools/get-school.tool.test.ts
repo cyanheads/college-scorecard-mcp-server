@@ -4,7 +4,7 @@
  */
 
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSchoolTool } from '@/mcp-server/tools/definitions/get-school.tool.js';
 
@@ -72,13 +72,13 @@ describe('getSchoolTool', () => {
     expect(result.schools.length).toBe(1);
   });
 
-  it('sets notice when fewer schools returned than requested', async () => {
+  it('enriches a notice when fewer schools returned than requested', async () => {
     // Request 2 IDs but only 1 returns
     mockGetSchoolProfiles.mockResolvedValue(makeProfileResult());
     const ctx = createMockContext({ errors: getSchoolTool.errors });
     const input = getSchoolTool.input.parse({ id: [236948, 999999] });
     const result = await getSchoolTool.handler(input, ctx);
-    expect(result.notice).toBeDefined();
+    expect(getEnrichment(ctx).notice).toBeDefined();
     expect(result.total_requested).toBe(2);
     expect(result.total_found).toBe(1);
   });

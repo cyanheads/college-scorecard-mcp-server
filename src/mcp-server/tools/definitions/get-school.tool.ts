@@ -132,8 +132,11 @@ export const getSchoolTool = tool('scorecard_get_school', {
       .describe('Full profiles for the requested school(s).'),
     total_requested: z.number().describe('Number of IDs requested.'),
     total_found: z.number().describe('Number of records returned.'),
-    notice: z.string().optional().describe('Warning when some requested IDs returned no record.'),
   }),
+
+  enrichment: {
+    notice: z.string().optional().describe('Warning when some requested IDs returned no record.'),
+  },
 
   errors: [
     {
@@ -266,16 +269,16 @@ export const getSchoolTool = tool('scorecard_get_school', {
       }),
     );
 
-    const notice =
-      schools.length < ids.length
-        ? `${ids.length - schools.length} of ${ids.length} requested IDs returned no record — they may be invalid or no longer in the database.`
-        : undefined;
+    if (schools.length < ids.length) {
+      ctx.enrich.notice(
+        `${ids.length - schools.length} of ${ids.length} requested IDs returned no record — they may be invalid or no longer in the database.`,
+      );
+    }
 
     return {
       schools,
       total_requested: ids.length,
       total_found: schools.length,
-      ...(notice && { notice }),
     };
   },
 
@@ -284,7 +287,6 @@ export const getSchoolTool = tool('scorecard_get_school', {
       `## School Profile${result.schools.length > 1 ? 's' : ''}`,
       `**Requested:** ${result.total_requested} | **Found:** ${result.total_found}`,
     ];
-    if (result.notice) lines.push(`\n> **Note:** ${result.notice}`);
     for (const s of result.schools) {
       lines.push(`\n---\n### ${s.name} (ID: ${s.id})`);
       const loc = [s.city, s.state].filter(Boolean).join(', ');

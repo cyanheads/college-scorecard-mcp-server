@@ -3,7 +3,7 @@
  * @module tests/tools/list-fields.tool.test
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { describe, expect, it } from 'vitest';
 import { listFieldsTool } from '@/mcp-server/tools/definitions/list-fields.tool.js';
 
@@ -24,11 +24,17 @@ describe('listFieldsTool', () => {
     }
   });
 
-  it('respects the limit parameter', async () => {
+  it('respects the limit parameter and enriches truncation when the cap is hit', async () => {
     const ctx = createMockContext({ errors: listFieldsTool.errors });
     const input = listFieldsTool.input.parse({ query: 'earnings', limit: 5 });
     const result = await listFieldsTool.handler(input, ctx);
     expect(result.results.length).toBeLessThanOrEqual(5);
+    if (result.results.length >= 5) {
+      const enrichment = getEnrichment(ctx);
+      expect(enrichment.truncated).toBe(true);
+      expect(enrichment.shown).toBe(result.results.length);
+      expect(enrichment.cap).toBe(5);
+    }
   });
 
   it('includes a tip when unsortable fields are present', async () => {

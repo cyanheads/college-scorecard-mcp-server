@@ -117,13 +117,22 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
           .describe('School summary record.'),
       )
       .describe('Matching institutions.'),
+  }),
+
+  enrichment: {
+    totalCount: z.number().describe('Total institutions matching the filters, before pagination.'),
+    truncated: z
+      .boolean()
+      .describe('True when the page was filled to per_page and more results exist on later pages.'),
+    shown: z.number().describe('Institutions returned on this page.'),
+    cap: z.number().describe('The per_page limit that was applied.'),
     notice: z
       .string()
       .optional()
       .describe(
-        'Recovery hint when results are empty — echoes applied filters and suggests how to broaden. Absent when results exist.',
+        'Recovery hint when results are empty — echoes applied filters and suggests how to broaden.',
       ),
-  }),
+  },
 
   errors: [
     {
@@ -200,10 +209,18 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       }),
     }));
 
-    const notice =
-      schools.length === 0
-        ? `No schools matched the applied filters. Try removing state, size, or acceptance rate filters.`
-        : undefined;
+    ctx.enrich.total(response.metadata.total);
+    if (schools.length === 0) {
+      ctx.enrich.notice(
+        `No schools matched the applied filters. Try removing state, size, or acceptance rate filters.`,
+      );
+    } else if (schools.length >= input.per_page) {
+      ctx.enrich.truncated({
+        shown: schools.length,
+        cap: input.per_page,
+        guidance: `Page ${input.page} filled to per_page (${input.per_page}). Request page ${input.page + 1} or raise per_page (max 100) for more.`,
+      });
+    }
 
     ctx.log.info('School search complete', {
       total: response.metadata.total,
@@ -215,7 +232,6 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       page: response.metadata.page,
       per_page: response.metadata.per_page,
       schools,
-      ...(notice && { notice }),
     };
   },
 
@@ -224,7 +240,6 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       `## School Search Results`,
       `**Total Matches:** ${result.total} | **Page:** ${result.page} | **Per Page:** ${result.per_page}`,
     ];
-    if (result.notice) lines.push(`\n> ${result.notice}`);
     for (const s of result.schools) {
       lines.push(`\n### ${s.name} (ID: ${s.id})`);
       const loc = [s.city, s.state].filter(Boolean).join(', ');

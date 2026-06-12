@@ -51,6 +51,12 @@ export const listFieldsTool = tool('scorecard_list_fields', {
     tip: z.string().optional().describe('Usage tip for unsortable fields when relevant.'),
   }),
 
+  enrichment: {
+    truncated: z.boolean().describe('True when results were capped at the limit.'),
+    shown: z.number().describe('Number of fields returned.'),
+    cap: z.number().describe('The limit that was applied.'),
+  },
+
   errors: [
     {
       reason: 'no_match',
@@ -67,6 +73,14 @@ export const listFieldsTool = tool('scorecard_list_fields', {
     if (results.length === 0) {
       throw ctx.fail('no_match', `No fields matched "${input.query}"`, {
         recovery: { hint: `Try broader terms like "cost", "earnings", "aid", or "admissions".` },
+      });
+    }
+
+    if (results.length >= input.limit) {
+      ctx.enrich.truncated({
+        shown: results.length,
+        cap: input.limit,
+        guidance: `Field list capped at ${input.limit} — narrow the query or raise limit (max 100) to see more.`,
       });
     }
 

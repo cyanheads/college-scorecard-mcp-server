@@ -3,7 +3,7 @@
  * @module tests/tools/search-schools.tool.test
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchSchoolsTool } from '@/mcp-server/tools/definitions/search-schools.tool.js';
 
@@ -102,13 +102,27 @@ describe('searchSchoolsTool', () => {
     expect(result.schools[0].tuition_in_state).toBeUndefined();
   });
 
-  it('sets notice when no schools are returned', async () => {
+  it('enriches a notice when no schools are returned', async () => {
     mockSearchSchools.mockResolvedValue(makeResponse([]));
     const ctx = createMockContext({ errors: searchSchoolsTool.errors });
     const input = searchSchoolsTool.input.parse({ query: 'ZZZ nonexistent' });
     const result = await searchSchoolsTool.handler(input, ctx);
-    expect(result.notice).toBeDefined();
     expect(result.schools.length).toBe(0);
+    expect(getEnrichment(ctx).notice).toBeDefined();
+  });
+
+  it('enriches total and truncation when a page fills to per_page', async () => {
+    const response = makeResponse(Array.from({ length: 3 }, () => ({})));
+    response.metadata.total = 42;
+    mockSearchSchools.mockResolvedValue(response);
+    const ctx = createMockContext({ errors: searchSchoolsTool.errors });
+    const input = searchSchoolsTool.input.parse({ query: 'University', per_page: 3 });
+    await searchSchoolsTool.handler(input, ctx);
+    const enrichment = getEnrichment(ctx);
+    expect(enrichment.totalCount).toBe(42);
+    expect(enrichment.truncated).toBe(true);
+    expect(enrichment.shown).toBe(3);
+    expect(enrichment.cap).toBe(3);
   });
 
   it('throws api_error when the service rejects', async () => {

@@ -4,7 +4,7 @@
  */
 
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { compareSchoolsTool } from '@/mcp-server/tools/definitions/compare-schools.tool.js';
 
@@ -92,16 +92,17 @@ describe('compareSchoolsTool', () => {
     });
   });
 
-  it('sets notice when some IDs return no record', async () => {
+  it('enriches a notice when some IDs return no record', async () => {
     // Only 1 of the 2 IDs returns a record
     mockGetComparisonData.mockResolvedValue(
       makeComparisonResult([makeRecord(236948, 'University of Washington')]),
     );
     const ctx = createMockContext({ errors: compareSchoolsTool.errors });
     const input = compareSchoolsTool.input.parse({ ids: [236948, 999999], topic: 'costs' });
-    const result = await compareSchoolsTool.handler(input, ctx);
-    expect(result.notice).toBeDefined();
-    expect(result.notice).toContain('999999');
+    await compareSchoolsTool.handler(input, ctx);
+    const notice = getEnrichment(ctx).notice;
+    expect(notice).toBeDefined();
+    expect(notice).toContain('999999');
   });
 
   it('handles suppressed metric values (null data)', async () => {

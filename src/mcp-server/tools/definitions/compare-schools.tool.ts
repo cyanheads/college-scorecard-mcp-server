@@ -87,8 +87,11 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       .string()
       .optional()
       .describe('Brief interpretive summary highlighting the most notable relative differences.'),
-    notice: z.string().optional().describe('Warning if some requested IDs returned no record.'),
   }),
+
+  enrichment: {
+    notice: z.string().optional().describe('Warning if some requested IDs returned no record.'),
+  },
 
   errors: [
     {
@@ -132,10 +135,11 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
     const found = schools.filter((s) => byId.has(String(s.id)));
     const missing = schools.filter((s) => !byId.has(String(s.id)));
 
-    const notice =
-      missing.length > 0
-        ? `${missing.length} of ${input.ids.length} requested IDs returned no record: ${missing.map((s) => s.id).join(', ')}`
-        : undefined;
+    if (missing.length > 0) {
+      ctx.enrich.notice(
+        `${missing.length} of ${input.ids.length} requested IDs returned no record: ${missing.map((s) => s.id).join(', ')}`,
+      );
+    }
 
     // Build comparison rows per topic
     type MetricDef = {
@@ -361,7 +365,6 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       topic: input.topic,
       rows,
       ...(summary && { summary }),
-      ...(notice && { notice }),
     };
   },
 
@@ -373,7 +376,6 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       `## School Comparison: ${result.topic}`,
       `**Schools:** ${result.schools.map((s) => `${s.name} (ID: ${s.id})`).join(', ')}`,
     ];
-    if (result.notice) lines.push(`\n> **Note:** ${result.notice}`);
     if (result.summary) lines.push(`\n> **Summary:** ${result.summary}`);
 
     for (const row of result.rows) {

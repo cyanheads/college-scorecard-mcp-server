@@ -3,7 +3,7 @@
  * @module tests/tools/search-programs.tool.test
  */
 
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchProgramsTool } from '@/mcp-server/tools/definitions/search-programs.tool.js';
 
@@ -75,12 +75,12 @@ describe('searchProgramsTool', () => {
     expect(result.suppressed_count).toBe(1);
   });
 
-  it('sets notice when no programs match', async () => {
+  it('enriches a notice when no programs match', async () => {
     mockSearchPrograms.mockResolvedValue(makeResponse([]));
     const ctx = createMockContext({ errors: searchProgramsTool.errors });
     const input = searchProgramsTool.input.parse({ cip_code: '99.99' });
     const result = await searchProgramsTool.handler(input, ctx);
-    expect(result.notice).toBeDefined();
+    expect(getEnrichment(ctx).notice).toBeDefined();
     expect(result.programs.length).toBe(0);
   });
 

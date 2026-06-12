@@ -72,11 +72,22 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       ),
     total_programs: z.number().describe('Total programs returned across all result schools.'),
     suppressed_count: z.number().describe('Programs with suppressed earnings.'),
+  }),
+
+  enrichment: {
+    totalCount: z
+      .number()
+      .describe('Total schools matching the filters, before pagination (school-level total).'),
+    truncated: z
+      .boolean()
+      .describe('True when the school page was filled to per_page and more schools exist.'),
+    shown: z.number().describe('Schools returned on this page.'),
+    cap: z.number().describe('The per_page limit that was applied.'),
     notice: z
       .string()
       .optional()
       .describe('Recovery hint when no programs match or earnings data is unavailable.'),
-  }),
+  },
 
   errors: [
     {
@@ -174,12 +185,24 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
     });
 
     const suppressed_count = allPrograms.filter((p) => p.suppressed).length;
-    const notice =
-      allPrograms.length === 0
-        ? `No programs matched the applied filters. Try removing min_earnings or max_net_price constraints, or use scorecard_lookup_cip to find the correct CIP code.`
-        : suppressed_count === allPrograms.length
-          ? `All ${allPrograms.length} programs have suppressed earnings data. Try a broader CIP code or different state.`
-          : undefined;
+
+    ctx.enrich.total(response.metadata.total);
+    if (allPrograms.length === 0) {
+      ctx.enrich.notice(
+        `No programs matched the applied filters. Try removing min_earnings or max_net_price constraints, or use scorecard_lookup_cip to find the correct CIP code.`,
+      );
+    } else if (suppressed_count === allPrograms.length) {
+      ctx.enrich.notice(
+        `All ${allPrograms.length} programs have suppressed earnings data. Try a broader CIP code or different state.`,
+      );
+    }
+    if (response.results.length >= input.per_page) {
+      ctx.enrich.truncated({
+        shown: response.results.length,
+        cap: input.per_page,
+        guidance: `School page ${input.page} filled to per_page (${input.per_page}). Request page ${input.page + 1} or raise per_page (max 100) for more.`,
+      });
+    }
 
     return {
       total: response.metadata.total,
@@ -188,7 +211,6 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       programs: allPrograms,
       total_programs: allPrograms.length,
       suppressed_count,
-      ...(notice && { notice }),
     };
   },
 
@@ -198,7 +220,6 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       `**Schools Matched:** ${result.total} | **Programs:** ${result.total_programs} | **Suppressed:** ${result.suppressed_count}`,
       `**Page:** ${result.page} | **Per Page:** ${result.per_page}`,
     ];
-    if (result.notice) lines.push(`\n> ${result.notice}`);
     for (const p of result.programs) {
       lines.push(`\n**${p.program_code}** — ${p.program_title ?? 'Unknown'}`);
       lines.push(

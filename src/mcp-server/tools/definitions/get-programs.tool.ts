@@ -83,11 +83,14 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     suppressed_count: z
       .number()
       .describe('Number of programs with earnings suppressed due to small cohort.'),
+  }),
+
+  enrichment: {
     notice: z
       .string()
       .optional()
       .describe('Guidance when no programs match the filters or all data is suppressed.'),
-  }),
+  },
 
   errors: [
     {
@@ -191,10 +194,11 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     });
 
     const suppressed_count = sorted.filter((p) => p.suppressed).length;
-    const notice =
-      suppressed_count > 0
-        ? `${suppressed_count} of ${sorted.length} programs have suppressed earnings due to small cohorts (FERPA). These are listed last.`
-        : undefined;
+    if (suppressed_count > 0) {
+      ctx.enrich.notice(
+        `${suppressed_count} of ${sorted.length} programs have suppressed earnings due to small cohorts (FERPA). These are listed last.`,
+      );
+    }
 
     return {
       school_id: record.id ?? Number(input.id),
@@ -202,7 +206,6 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       programs: sorted,
       total: sorted.length,
       suppressed_count,
-      ...(notice && { notice }),
     };
   },
 
@@ -211,7 +214,6 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       `## Programs at ${result.school_name} (ID: ${result.school_id})`,
       `**Total:** ${result.total} | **Suppressed:** ${result.suppressed_count}`,
     ];
-    if (result.notice) lines.push(`\n> ${result.notice}`);
     for (const p of result.programs) {
       lines.push(`\n**${p.code}** — ${p.title ?? 'Unknown title'} (${p.credential_level})`);
       lines.push(

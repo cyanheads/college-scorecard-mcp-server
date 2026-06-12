@@ -23,6 +23,8 @@ import { valueAnalysisTool } from './mcp-server/tools/definitions/value-analysis
 import { initScorecardService } from './services/scorecard/scorecard-service.js';
 
 await createApp({
+  name: 'college-scorecard-mcp-server',
+  title: 'college-scorecard-mcp-server',
   tools: [
     lookupCipTool,
     listFieldsTool,

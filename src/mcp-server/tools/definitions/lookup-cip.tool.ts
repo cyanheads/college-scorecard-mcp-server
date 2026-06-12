@@ -47,6 +47,12 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
     totalMatches: z.number().describe('Number of matches found.'),
   }),
 
+  enrichment: {
+    truncated: z.boolean().describe('True when results were capped at the limit.'),
+    shown: z.number().describe('Number of CIP codes returned.'),
+    cap: z.number().describe('The limit that was applied.'),
+  },
+
   errors: [
     {
       reason: 'no_match',
@@ -64,6 +70,14 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
     if (results.length === 0) {
       throw ctx.fail('no_match', `No CIP codes matched "${input.query}"`, {
         recovery: { hint: `Try a broader term like "computer", "health", or "business".` },
+      });
+    }
+
+    if (results.length >= input.limit) {
+      ctx.enrich.truncated({
+        shown: results.length,
+        cap: input.limit,
+        guidance: `CIP list capped at ${input.limit} — narrow the query or raise limit (max 50) to see more.`,
       });
     }
 
