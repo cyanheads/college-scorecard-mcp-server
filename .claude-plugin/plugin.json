@@ -1,0 +1,21 @@
+{
+  "name": "college-scorecard-mcp-server",
+  "version": "0.1.5",
+  "description": "Search, compare, and analyze U.S. college data — costs, earnings, programs, and outcomes.",
+  "author": {
+    "name": "cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/college-scorecard-mcp-server",
+  "repository": "https://github.com/cyanheads/college-scorecard-mcp-server",
+  "license": "Apache-2.0",
+  "mcpServers": {
+    "college-scorecard-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "@cyanheads/college-scorecard-mcp-server"],
+      "env": {
+        "MCP_TRANSPORT_TYPE": "stdio",
+        "SCORECARD_API_KEY": ""
+      }
+    }
+  }
+}

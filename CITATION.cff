@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: college-scorecard-mcp-server
+abstract: "Model Context Protocol (MCP) server for the U.S. College Scorecard API, providing search, comparison, and analysis of college costs, earnings, programs, and outcomes."
+type: software
+authors:
+  - family-names: Hand
+    given-names: Casey
+    orcid: "https://orcid.org/0009-0009-3726-568X"
+repository-code: "https://github.com/cyanheads/college-scorecard-mcp-server"
+license: Apache-2.0
+keywords:
+  - mcp
+  - model-context-protocol
+  - college-scorecard
+  - higher-education
+  - education-data

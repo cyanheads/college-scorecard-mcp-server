@@ -1,0 +1,25 @@
+{
+  "name": "college-scorecard-mcp-server",
+  "version": "0.1.5",
+  "description": "Search, compare, and analyze U.S. college data — costs, earnings, programs, and outcomes.",
+  "author": {
+    "name": "cyanheads",
+    "email": "casey@caseyjhand.com",
+    "url": "https://github.com/cyanheads"
+  },
+  "homepage": "https://github.com/cyanheads/college-scorecard-mcp-server",
+  "repository": "https://github.com/cyanheads/college-scorecard-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "college-scorecard", "higher-education"],
+  "mcpServers": "./.codex-plugin/mcp.json",
+  "interface": {
+    "displayName": "college-scorecard-mcp-server",
+    "shortDescription": "Search, compare, and analyze U.S. college data — costs, earnings, programs, and outcomes.",
+    "longDescription": "Access U.S. Department of Education College Scorecard data — search institutions, compare schools side-by-side, look up program-level earnings and debt, and analyze value metrics.",
+    "developerName": "cyanheads",
+    "category": "data",
+    "capabilities": ["Read"],
+    "websiteURL": "https://github.com/cyanheads/college-scorecard-mcp-server",
+    "defaultPrompt": []
+  }
+}

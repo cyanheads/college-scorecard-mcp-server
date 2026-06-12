@@ -1,0 +1,10 @@
+{
+  "college-scorecard-mcp-server": {
+    "command": "npx",
+    "args": ["-y", "@cyanheads/college-scorecard-mcp-server"],
+    "env": {
+      "MCP_TRANSPORT_TYPE": "stdio",
+      "SCORECARD_API_KEY": ""
+    }
+  }
+}
