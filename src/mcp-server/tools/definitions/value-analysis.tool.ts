@@ -30,7 +30,7 @@ function netPriceForIncome(
 export const valueAnalysisTool = tool('scorecard_value_analysis', {
   title: 'Value Analysis',
   description:
-    'Workflow tool: parallel-fetches cost, debt, repayment, and earnings data for one school and computes ROI metrics the API does not pre-calculate — debt-to-earnings ratio, net price by income bracket, 3-year loan repayment rate, and how these compare within the school\'s Carnegie peer group. family_income narrows the net price to the applicable bracket. Returns a structured summary with all source figures alongside derived metrics. Answers "is this school worth it?" without requiring multiple tool calls.',
+    'Workflow tool: parallel-fetches cost, debt, repayment, and earnings data for one school and computes ROI metrics the API does not pre-calculate — debt-to-earnings ratio, net price by income bracket, 3-year repayment progress (share paying down principal), and how these compare within the school\'s Carnegie peer group. family_income narrows the net price to the applicable bracket. Returns a structured summary with all source figures alongside derived metrics. Answers "is this school worth it?" without requiring multiple tool calls.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
@@ -72,7 +72,12 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       .describe('Income bracket used for net_price_for_income.'),
     // Debt and repayment
     median_debt: z.number().optional().describe('Median debt at graduation (completers).'),
-    repayment_rate_3yr: z.number().optional().describe('3-year loan repayment rate (0–1).'),
+    repayment_progress_3yr: z
+      .number()
+      .optional()
+      .describe(
+        'Share of borrowers paying down principal (declining loan balance) 3 years after entering repayment (0–1).',
+      ),
     graduation_rate: z.number().optional().describe('Completion rate at 150% normal time (0–1).'),
     // Earnings
     earnings_6yr_median: z.number().optional().describe('Median earnings 6 years after entry.'),
@@ -139,12 +144,24 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
 
     const net_price_overall = costRecord['latest.cost.avg_net_price.overall'] ?? undefined;
 
+    // Net price by income is keyed by ownership (public vs private); the API
+    // returns null for the inapplicable set, so coalesce public → private.
     const brackets = {
-      np0_30k: costRecord['latest.cost.avg_net_price.by_income.0-30000'],
-      np30k_48k: costRecord['latest.cost.avg_net_price.by_income.30001-48000'],
-      np48k_75k: costRecord['latest.cost.avg_net_price.by_income.48001-75000'],
-      np75k_110k: costRecord['latest.cost.avg_net_price.by_income.75001-110000'],
-      np110k_plus: costRecord['latest.cost.avg_net_price.by_income.110001-plus'],
+      np0_30k:
+        costRecord['latest.cost.net_price.public.by_income_level.0-30000'] ??
+        costRecord['latest.cost.net_price.private.by_income_level.0-30000'],
+      np30k_48k:
+        costRecord['latest.cost.net_price.public.by_income_level.30001-48000'] ??
+        costRecord['latest.cost.net_price.private.by_income_level.30001-48000'],
+      np48k_75k:
+        costRecord['latest.cost.net_price.public.by_income_level.48001-75000'] ??
+        costRecord['latest.cost.net_price.private.by_income_level.48001-75000'],
+      np75k_110k:
+        costRecord['latest.cost.net_price.public.by_income_level.75001-110000'] ??
+        costRecord['latest.cost.net_price.private.by_income_level.75001-110000'],
+      np110k_plus:
+        costRecord['latest.cost.net_price.public.by_income_level.110001-plus'] ??
+        costRecord['latest.cost.net_price.private.by_income_level.110001-plus'],
     };
 
     const net_price_for_income =
@@ -164,8 +181,8 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
         : undefined;
 
     const median_debt = costRecord['latest.aid.median_debt.completers.overall'] ?? undefined;
-    const rawRepayment = costRecord['latest.repayment.3_yr_repayment.overall'];
-    const repayment_rate_3yr = rawRepayment != null ? rawRepayment / 1000 : undefined;
+    const repayment_progress_3yr =
+      costRecord['latest.repayment.repayment_cohort.3_year_declining_balance'] ?? undefined;
     const graduation_rate = costRecord['latest.completion.rate_suppressed.overall'] ?? undefined;
 
     const earnings_6yr_median =
@@ -203,7 +220,8 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     if (earnings_10yr_median == null)
       data_notes.push('10-year earnings suppressed or not reported.');
     if (graduation_rate == null) data_notes.push('Completion rate not reported.');
-    if (repayment_rate_3yr == null) data_notes.push('3-year repayment rate not reported.');
+    if (repayment_progress_3yr == null)
+      data_notes.push('3-year repayment progress (declining balance) not reported.');
     if (inStateTuition == null && outOfStateTuition != null) {
       data_notes.push('No in-state tuition — using out-of-state tuition as list price.');
     }
@@ -216,7 +234,7 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       ...(net_price_for_income != null && { net_price_for_income }),
       ...(applicable_income_bracket && { applicable_income_bracket }),
       ...(median_debt != null && { median_debt }),
-      ...(repayment_rate_3yr != null && { repayment_rate_3yr }),
+      ...(repayment_progress_3yr != null && { repayment_progress_3yr }),
       ...(graduation_rate != null && { graduation_rate }),
       ...(earnings_6yr_median != null && { earnings_6yr_median }),
       ...(earnings_10yr_median != null && { earnings_10yr_median }),
@@ -243,8 +261,10 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     lines.push('\n**Debt & Repayment**');
     if (result.median_debt != null)
       lines.push(`Median Debt at Graduation: $${result.median_debt.toLocaleString()}`);
-    if (result.repayment_rate_3yr != null)
-      lines.push(`3-Year Repayment Rate: ${(result.repayment_rate_3yr * 100).toFixed(1)}%`);
+    if (result.repayment_progress_3yr != null)
+      lines.push(
+        `3-Year Repayment Progress (declining balance): ${(result.repayment_progress_3yr * 100).toFixed(1)}%`,
+      );
     if (result.graduation_rate != null)
       lines.push(`Completion Rate (150%): ${(result.graduation_rate * 100).toFixed(1)}%`);
 

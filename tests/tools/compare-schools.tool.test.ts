@@ -17,17 +17,22 @@ const makeComparisonResult = (records: Record<string, unknown>[] = []) => ({
   results: records,
 });
 
+/**
+ * Mirrors the live College Scorecard shape for a public school (ownership=1):
+ * net price by income under `net_price.public.by_income_level.*`, and
+ * `repayment_cohort.3_year_declining_balance` as a 0–1 decimal.
+ */
 const makeRecord = (id: number, name: string, overrides: Record<string, unknown> = {}) => ({
   id,
   'school.name': name,
   'latest.cost.tuition.in_state': 11839,
   'latest.cost.tuition.out_of_state': 38614,
   'latest.cost.avg_net_price.overall': 15000,
-  'latest.cost.avg_net_price.by_income.0-30000': 6000,
-  'latest.cost.avg_net_price.by_income.30001-48000': 9000,
-  'latest.cost.avg_net_price.by_income.48001-75000': 12000,
-  'latest.cost.avg_net_price.by_income.75001-110000': 16000,
-  'latest.cost.avg_net_price.by_income.110001-plus': 20000,
+  'latest.cost.net_price.public.by_income_level.0-30000': 6384,
+  'latest.cost.net_price.public.by_income_level.30001-48000': 7039,
+  'latest.cost.net_price.public.by_income_level.48001-75000': 8110,
+  'latest.cost.net_price.public.by_income_level.75001-110000': 14328,
+  'latest.cost.net_price.public.by_income_level.110001-plus': 30019,
   'latest.aid.median_debt.completers.overall': 17000,
   'latest.admissions.admission_rate.overall': 0.52,
   'latest.admissions.sat_scores.average.overall': 1220,
@@ -39,7 +44,7 @@ const makeRecord = (id: number, name: string, overrides: Record<string, unknown>
   'latest.completion.rate_suppressed.overall': 0.82,
   'latest.earnings.6_yrs_after_entry.median': 50000,
   'latest.earnings.10_yrs_after_entry.median': 60000,
-  'latest.repayment.3_yr_repayment.overall': 0.67,
+  'latest.repayment.repayment_cohort.3_year_declining_balance': 0.7903764139,
   'latest.aid.pell_grant_rate': 0.25,
   'latest.aid.federal_loan_rate': 0.44,
   ...overrides,
@@ -119,6 +124,67 @@ describe('compareSchoolsTool', () => {
     expect(inStateTuitionRow).toBeDefined();
     const suppressedValue = inStateTuitionRow!.values.find((v) => v.school_id === 236948);
     expect(suppressedValue!.suppressed).toBe(true);
+  });
+
+  // Regression (issue #7): the costs topic's net-price-by-income rows must read
+  // the ownership-keyed net_price.public/private.* paths. With the old
+  // avg_net_price.by_income.* paths the rows were always suppressed.
+  it('populates net-price-by-income rows for a public school', async () => {
+    mockGetComparisonData.mockResolvedValue(
+      makeComparisonResult([
+        makeRecord(236948, 'University of Washington'),
+        makeRecord(110635, 'University of Oregon'),
+      ]),
+    );
+    const ctx = createMockContext({ errors: compareSchoolsTool.errors });
+    const input = compareSchoolsTool.input.parse({ ids: [236948, 110635], topic: 'costs' });
+    const result = await compareSchoolsTool.handler(input, ctx);
+    const bracketRow = result.rows.find((r) => r.metric === 'Net Price ($0–30k income)');
+    expect(bracketRow).toBeDefined();
+    const uw = bracketRow!.values.find((v) => v.school_id === 236948);
+    expect(uw!.suppressed).toBe(false);
+    expect(uw!.value).toBe(6384);
+  });
+
+  // Issue #7: a private school reports brackets under net_price.private.*; the
+  // comparison must coalesce public → private and read the value either way.
+  it('reads net-price-by-income from the private path for a private school', async () => {
+    const privateRecord = {
+      id: 166027,
+      'school.name': 'Harvard University',
+      'latest.cost.net_price.private.by_income_level.0-30000': 8697,
+    };
+    mockGetComparisonData.mockResolvedValue(
+      makeComparisonResult([makeRecord(236948, 'University of Washington'), privateRecord]),
+    );
+    const ctx = createMockContext({ errors: compareSchoolsTool.errors });
+    const input = compareSchoolsTool.input.parse({ ids: [236948, 166027], topic: 'costs' });
+    const result = await compareSchoolsTool.handler(input, ctx);
+    const bracketRow = result.rows.find((r) => r.metric === 'Net Price ($0–30k income)');
+    const harvard = bracketRow!.values.find((v) => v.school_id === 166027);
+    expect(harvard!.suppressed).toBe(false);
+    expect(harvard!.value).toBe(8697);
+  });
+
+  // Regression (issue #6): the repayment row reads
+  // repayment_cohort.3_year_declining_balance (a 0–1 decimal) with no scaling.
+  // The old code read a count field and scaled by 1/1000, so the rendered
+  // percentage was effectively zero (e.g. 0.79/1000 → 0.079%).
+  it('surfaces 3-Year Repayment Progress as a 0–1 value in the outcomes topic', async () => {
+    mockGetComparisonData.mockResolvedValue(
+      makeComparisonResult([
+        makeRecord(236948, 'University of Washington'),
+        makeRecord(110635, 'University of Oregon'),
+      ]),
+    );
+    const ctx = createMockContext({ errors: compareSchoolsTool.errors });
+    const input = compareSchoolsTool.input.parse({ ids: [236948, 110635], topic: 'outcomes' });
+    const result = await compareSchoolsTool.handler(input, ctx);
+    const repaymentRow = result.rows.find((r) => r.metric === '3-Year Repayment Progress');
+    expect(repaymentRow).toBeDefined();
+    const uw = repaymentRow!.values.find((v) => v.school_id === 236948);
+    expect(uw!.value).toBeCloseTo(0.7903764139, 5);
+    expect(uw!.value!).toBeLessThanOrEqual(1);
   });
 
   it('formats output with value and rank for all data points', () => {

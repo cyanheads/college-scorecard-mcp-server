@@ -145,11 +145,14 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
     type MetricDef = {
       metric: string;
       key: string;
+      /**
+       * Ownership-keyed fallbacks read in order, first non-null wins (e.g. public
+       * vs private net-price paths). When set, `key` is unused for value lookup.
+       */
+      keys?: string[];
       unit?: string;
       higherIsBetter: boolean;
       note?: string;
-      /** Multiply raw API value by this factor before use (e.g. 1/1000 for scaled integers) */
-      scale?: number;
     };
     const metricsByTopic: Record<string, MetricDef[]> = {
       costs: [
@@ -173,31 +176,51 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         },
         {
           metric: 'Net Price ($0–30k income)',
-          key: 'latest.cost.avg_net_price.by_income.0-30000',
+          key: 'latest.cost.net_price.public.by_income_level.0-30000',
+          keys: [
+            'latest.cost.net_price.public.by_income_level.0-30000',
+            'latest.cost.net_price.private.by_income_level.0-30000',
+          ],
           unit: '$',
           higherIsBetter: false,
         },
         {
           metric: 'Net Price ($30k–48k income)',
-          key: 'latest.cost.avg_net_price.by_income.30001-48000',
+          key: 'latest.cost.net_price.public.by_income_level.30001-48000',
+          keys: [
+            'latest.cost.net_price.public.by_income_level.30001-48000',
+            'latest.cost.net_price.private.by_income_level.30001-48000',
+          ],
           unit: '$',
           higherIsBetter: false,
         },
         {
           metric: 'Net Price ($48k–75k income)',
-          key: 'latest.cost.avg_net_price.by_income.48001-75000',
+          key: 'latest.cost.net_price.public.by_income_level.48001-75000',
+          keys: [
+            'latest.cost.net_price.public.by_income_level.48001-75000',
+            'latest.cost.net_price.private.by_income_level.48001-75000',
+          ],
           unit: '$',
           higherIsBetter: false,
         },
         {
           metric: 'Net Price ($75k–110k income)',
-          key: 'latest.cost.avg_net_price.by_income.75001-110000',
+          key: 'latest.cost.net_price.public.by_income_level.75001-110000',
+          keys: [
+            'latest.cost.net_price.public.by_income_level.75001-110000',
+            'latest.cost.net_price.private.by_income_level.75001-110000',
+          ],
           unit: '$',
           higherIsBetter: false,
         },
         {
           metric: 'Net Price ($110k+ income)',
-          key: 'latest.cost.avg_net_price.by_income.110001-plus',
+          key: 'latest.cost.net_price.public.by_income_level.110001-plus',
+          keys: [
+            'latest.cost.net_price.public.by_income_level.110001-plus',
+            'latest.cost.net_price.private.by_income_level.110001-plus',
+          ],
           unit: '$',
           higherIsBetter: false,
         },
@@ -268,11 +291,11 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           higherIsBetter: true,
         },
         {
-          metric: '3-Year Repayment Rate',
-          key: 'latest.repayment.3_yr_repayment.overall',
+          metric: '3-Year Repayment Progress',
+          key: 'latest.repayment.repayment_cohort.3_year_declining_balance',
           unit: '%',
           higherIsBetter: true,
-          scale: 1 / 1000,
+          note: 'Share of borrowers paying down principal (declining loan balance)',
         },
         {
           metric: 'Median Debt at Graduation',
@@ -302,11 +325,11 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           higherIsBetter: false,
         },
         {
-          metric: '3-Year Repayment Rate',
-          key: 'latest.repayment.3_yr_repayment.overall',
+          metric: '3-Year Repayment Progress',
+          key: 'latest.repayment.repayment_cohort.3_year_declining_balance',
           unit: '%',
           higherIsBetter: true,
-          scale: 1 / 1000,
+          note: 'Share of borrowers paying down principal (declining loan balance)',
         },
         {
           metric: 'Avg Net Price (overall)',
@@ -319,12 +342,15 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
 
     const metrics = metricsByTopic[input.topic] ?? [];
     const rows: z.infer<typeof ComparisonRowSchema>[] = metrics.map((m) => {
+      const lookupKeys = m.keys ?? [m.key];
       const rawValues = found.map((s) => {
         const r = byId.get(String(s.id));
         if (!r) return null;
-        const raw = r[m.key] as number | null | undefined;
-        if (raw == null) return null;
-        return m.scale != null ? raw * m.scale : raw;
+        for (const k of lookupKeys) {
+          const raw = r[k] as number | null | undefined;
+          if (raw != null) return raw;
+        }
+        return null;
       });
 
       const ranks = computeRanks(rawValues, m.higherIsBetter);

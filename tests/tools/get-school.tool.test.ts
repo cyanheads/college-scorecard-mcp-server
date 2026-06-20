@@ -31,7 +31,13 @@ const makeProfileResult = (overrides: Record<string, unknown> = {}) => ({
       'latest.cost.tuition.in_state': 11839,
       'latest.cost.tuition.out_of_state': 38614,
       'latest.cost.avg_net_price.overall': 15000,
+      'latest.cost.net_price.public.by_income_level.0-30000': 6384,
+      'latest.cost.net_price.public.by_income_level.30001-48000': 7039,
+      'latest.cost.net_price.public.by_income_level.48001-75000': 8110,
+      'latest.cost.net_price.public.by_income_level.75001-110000': 14328,
+      'latest.cost.net_price.public.by_income_level.110001-plus': 30019,
       'latest.aid.median_debt.completers.overall': 17000,
+      'latest.repayment.repayment_cohort.3_year_declining_balance': 0.7903764139,
       'latest.earnings.6_yrs_after_entry.median': 50000,
       'latest.earnings.10_yrs_after_entry.median': 60000,
       ...overrides,
@@ -112,6 +118,52 @@ describe('getSchoolTool', () => {
     expect(result.schools[0].city).toBeUndefined();
     expect(result.schools[0].enrollment).toBeUndefined();
     expect(result.schools[0].admission_rate).toBeUndefined();
+  });
+
+  // Regression (issue #6): repayment_progress_3yr reads
+  // repayment_cohort.3_year_declining_balance (a 0–1 decimal) with no scaling.
+  // The old code read a borrower-count field and divided by 1000, producing
+  // absurd values like 10.786 (rendered as 1078.6%).
+  it('surfaces repayment_progress_3yr as a 0–1 decimal without scaling', async () => {
+    mockGetSchoolProfiles.mockResolvedValue(makeProfileResult());
+    const ctx = createMockContext({ errors: getSchoolTool.errors });
+    const input = getSchoolTool.input.parse({ id: 236948 });
+    const result = await getSchoolTool.handler(input, ctx);
+    expect(result.schools[0].repayment_progress_3yr).toBeCloseTo(0.7903764139, 5);
+    expect(result.schools[0].repayment_progress_3yr!).toBeLessThanOrEqual(1);
+  });
+
+  // Regression (issue #7): net price by income reads the ownership-keyed
+  // net_price.public/private.by_income_level.* paths. A public school populates
+  // every bracket; the old avg_net_price.by_income.* paths returned null.
+  it('populates net-price-by-income brackets for a public school', async () => {
+    mockGetSchoolProfiles.mockResolvedValue(makeProfileResult());
+    const ctx = createMockContext({ errors: getSchoolTool.errors });
+    const input = getSchoolTool.input.parse({ id: 236948 });
+    const result = await getSchoolTool.handler(input, ctx);
+    expect(result.schools[0].net_price_0_30k).toBe(6384);
+    expect(result.schools[0].net_price_110k_plus).toBe(30019);
+  });
+
+  // Issue #7: a private school reports brackets under net_price.private.*; the
+  // normalizer coalesces public → private and surfaces the value either way.
+  it('reads net-price-by-income from the private path for a private school', async () => {
+    mockGetSchoolProfiles.mockResolvedValue(
+      makeProfileResult({
+        'school.ownership': 2,
+        'latest.cost.net_price.public.by_income_level.0-30000': null,
+        'latest.cost.net_price.public.by_income_level.30001-48000': null,
+        'latest.cost.net_price.public.by_income_level.48001-75000': null,
+        'latest.cost.net_price.public.by_income_level.75001-110000': null,
+        'latest.cost.net_price.public.by_income_level.110001-plus': null,
+        'latest.cost.net_price.private.by_income_level.0-30000': 8697,
+      }),
+    );
+    const ctx = createMockContext({ errors: getSchoolTool.errors });
+    const input = getSchoolTool.input.parse({ id: 236948 });
+    const result = await getSchoolTool.handler(input, ctx);
+    expect(result.schools[0].ownership).toBe('Private nonprofit');
+    expect(result.schools[0].net_price_0_30k).toBe(8697);
   });
 
   it('formats output with school name, ID, and metrics', () => {

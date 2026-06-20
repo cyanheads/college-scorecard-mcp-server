@@ -13,19 +13,24 @@ vi.mock('@/services/scorecard/scorecard-service.js', () => ({
   getScorecardService: () => ({ getValueAnalysisData: mockGetValueAnalysisData }),
 }));
 
+/**
+ * Mirrors the live College Scorecard shape for a public school (UW, ownership=1):
+ * net price by income lives under `net_price.public.by_income_level.*`, and
+ * `repayment_cohort.3_year_declining_balance` is a 0–1 decimal (not a count).
+ */
 const makeCostRecord = (overrides: Record<string, unknown> = {}) => ({
   id: 236948,
   'school.name': 'University of Washington',
   'latest.cost.tuition.in_state': 11839,
   'latest.cost.tuition.out_of_state': 38614,
   'latest.cost.avg_net_price.overall': 15000,
-  'latest.cost.avg_net_price.by_income.0-30000': 6000,
-  'latest.cost.avg_net_price.by_income.30001-48000': 9000,
-  'latest.cost.avg_net_price.by_income.48001-75000': 12000,
-  'latest.cost.avg_net_price.by_income.75001-110000': 16000,
-  'latest.cost.avg_net_price.by_income.110001-plus': 20000,
+  'latest.cost.net_price.public.by_income_level.0-30000': 6384,
+  'latest.cost.net_price.public.by_income_level.30001-48000': 7039,
+  'latest.cost.net_price.public.by_income_level.48001-75000': 8110,
+  'latest.cost.net_price.public.by_income_level.75001-110000': 14328,
+  'latest.cost.net_price.public.by_income_level.110001-plus': 30019,
   'latest.aid.median_debt.completers.overall': 17000,
-  'latest.repayment.3_yr_repayment.overall': 0.67,
+  'latest.repayment.repayment_cohort.3_year_declining_balance': 0.7903764139,
   'latest.completion.rate_suppressed.overall': 0.82,
   ...overrides,
 });
@@ -69,7 +74,7 @@ describe('valueAnalysisTool', () => {
     const ctx = createMockContext({ errors: valueAnalysisTool.errors });
     const input = valueAnalysisTool.input.parse({ id: 236948, family_income: 25000 });
     const result = await valueAnalysisTool.handler(input, ctx);
-    expect(result.net_price_for_income).toBe(6000);
+    expect(result.net_price_for_income).toBe(6384);
     expect(result.applicable_income_bracket).toBe('$0–$30,000');
   });
 
@@ -81,7 +86,7 @@ describe('valueAnalysisTool', () => {
             'latest.cost.tuition.in_state': null,
             'latest.cost.tuition.out_of_state': null,
             'latest.aid.median_debt.completers.overall': null,
-            'latest.repayment.3_yr_repayment.overall': null,
+            'latest.repayment.repayment_cohort.3_year_declining_balance': null,
             'latest.completion.rate_suppressed.overall': null,
           }),
         ],
@@ -121,7 +126,7 @@ describe('valueAnalysisTool', () => {
       net_price_for_income: 6000,
       applicable_income_bracket: '$0–$30,000',
       median_debt: 17000,
-      repayment_rate_3yr: 0.67,
+      repayment_progress_3yr: 0.79,
       graduation_rate: 0.82,
       earnings_6yr_median: 50000,
       earnings_10yr_median: 60000,
@@ -136,5 +141,65 @@ describe('valueAnalysisTool', () => {
     expect(text).toContain('11,839');
     expect(text).toContain('0.34');
     expect(text).toContain('50,000');
+    // repayment_progress_3yr (0–1) renders as a plausible percentage, not >100%
+    expect(text).toContain('79.0%');
+  });
+
+  // Regression (issue #6): 3-year repayment progress comes from
+  // repayment_cohort.3_year_declining_balance — already a 0–1 decimal. The old
+  // code read a borrower-count field and divided by 1000, producing absurd
+  // values like 1078.6%. Assert the value passes through unscaled.
+  it('surfaces repayment_progress_3yr as a 0–1 decimal without scaling', async () => {
+    mockGetValueAnalysisData.mockResolvedValue([
+      { results: [makeCostRecord()] },
+      { results: [makeEarningsRecord()] },
+    ]);
+    const ctx = createMockContext({ errors: valueAnalysisTool.errors });
+    const input = valueAnalysisTool.input.parse({ id: 236948 });
+    const result = await valueAnalysisTool.handler(input, ctx);
+    expect(result.repayment_progress_3yr).toBeCloseTo(0.7903764139, 5);
+    expect(result.repayment_progress_3yr).toBeLessThanOrEqual(1);
+  });
+
+  // Regression (issue #7): net price by income must read the ownership-keyed
+  // net_price.public/private.by_income_level.* paths. The old avg_net_price.by_income.*
+  // paths don't exist in the API, so a record carrying only those returns null.
+  it('returns null net_price_for_income when only the dead avg_net_price paths are present', async () => {
+    const deadRecord = {
+      id: 236948,
+      'school.name': 'University of Washington',
+      'latest.cost.avg_net_price.overall': 15000,
+      'latest.cost.avg_net_price.by_income.0-30000': 6000,
+      'latest.cost.avg_net_price.by_income.30001-48000': 9000,
+    };
+    mockGetValueAnalysisData.mockResolvedValue([
+      { results: [deadRecord] },
+      { results: [makeEarningsRecord()] },
+    ]);
+    const ctx = createMockContext({ errors: valueAnalysisTool.errors });
+    const input = valueAnalysisTool.input.parse({ id: 236948, family_income: 25000 });
+    const result = await valueAnalysisTool.handler(input, ctx);
+    expect(result.net_price_for_income).toBeUndefined();
+  });
+
+  // Issue #7: a private school reports brackets under net_price.private.*; the
+  // handler must coalesce public → private and surface the value either way.
+  it('reads net_price_for_income from the private path for a private school', async () => {
+    const privateRecord = {
+      id: 166027,
+      'school.name': 'Harvard University',
+      'latest.cost.avg_net_price.overall': 14000,
+      'latest.cost.net_price.private.by_income_level.0-30000': 8697,
+      'latest.cost.net_price.private.by_income_level.30001-48000': 2991,
+    };
+    mockGetValueAnalysisData.mockResolvedValue([
+      { results: [privateRecord] },
+      { results: [makeEarningsRecord({ id: 166027 })] },
+    ]);
+    const ctx = createMockContext({ errors: valueAnalysisTool.errors });
+    const input = valueAnalysisTool.input.parse({ id: 166027, family_income: 25000 });
+    const result = await valueAnalysisTool.handler(input, ctx);
+    expect(result.net_price_for_income).toBe(8697);
+    expect(result.applicable_income_bracket).toBe('$0–$30,000');
   });
 });

@@ -43,12 +43,19 @@ export interface RawSchoolRecord {
   // Completion
   'latest.completion.rate_suppressed.overall'?: number | null;
   'latest.cost.attendance.academic_year'?: number | null;
-  'latest.cost.avg_net_price.by_income.0-30000'?: number | null;
-  'latest.cost.avg_net_price.by_income.30001-48000'?: number | null;
-  'latest.cost.avg_net_price.by_income.48001-75000'?: number | null;
-  'latest.cost.avg_net_price.by_income.75001-110000'?: number | null;
-  'latest.cost.avg_net_price.by_income.110001-plus'?: number | null;
   'latest.cost.avg_net_price.overall'?: number | null;
+  // Net price by family-income bracket — keyed by ownership (public vs private);
+  // the API returns null for the inapplicable ownership when both sets are requested.
+  'latest.cost.net_price.private.by_income_level.0-30000'?: number | null;
+  'latest.cost.net_price.private.by_income_level.30001-48000'?: number | null;
+  'latest.cost.net_price.private.by_income_level.48001-75000'?: number | null;
+  'latest.cost.net_price.private.by_income_level.75001-110000'?: number | null;
+  'latest.cost.net_price.private.by_income_level.110001-plus'?: number | null;
+  'latest.cost.net_price.public.by_income_level.0-30000'?: number | null;
+  'latest.cost.net_price.public.by_income_level.30001-48000'?: number | null;
+  'latest.cost.net_price.public.by_income_level.48001-75000'?: number | null;
+  'latest.cost.net_price.public.by_income_level.75001-110000'?: number | null;
+  'latest.cost.net_price.public.by_income_level.110001-plus'?: number | null;
   // Cost
   'latest.cost.tuition.in_state'?: number | null;
   'latest.cost.tuition.out_of_state'?: number | null;
@@ -64,7 +71,9 @@ export interface RawSchoolRecord {
   'latest.earnings.10_yrs_after_entry.percentile75'?: number | null;
   // Programs nested array
   'latest.programs.cip_4_digit'?: RawProgram[];
-  'latest.repayment.3_yr_repayment.overall'?: number | null;
+  // Share of the repayment cohort whose loan balance is declining (paying down
+  // principal) 3 years after entering repayment — a 0–1 decimal, not a count.
+  'latest.repayment.repayment_cohort.3_year_declining_balance'?: number | null;
   'latest.student.size'?: number | null;
   'school.carnegie_basic'?: number | null;
   'school.city'?: string;

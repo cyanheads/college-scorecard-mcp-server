@@ -8,6 +8,7 @@ import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { degreeLevelLabel, ownershipLabel } from '@/mcp-server/format-helpers.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
+import type { RawSchoolRecord } from '@/services/scorecard/types.js';
 
 function fmt(n: number | null | undefined, prefix = ''): string {
   if (n == null) return 'Not available';
@@ -17,6 +18,23 @@ function fmt(n: number | null | undefined, prefix = ''): string {
 function fmtPct(n: number | null | undefined): string {
   if (n == null) return 'Not available';
   return `${(n * 100).toFixed(1)}%`;
+}
+
+/**
+ * Net price by income is reported under ownership-specific paths
+ * (`net_price.public.*` for public schools, `net_price.private.*` for private).
+ * Both sets are requested per school; the API returns null for the inapplicable
+ * one, so coalesce public → private to get the bracket value for either type.
+ */
+function netPriceBracket(
+  record: RawSchoolRecord,
+  bracket: '0-30000' | '30001-48000' | '48001-75000' | '75001-110000' | '110001-plus',
+): number | undefined {
+  return (
+    (record[`latest.cost.net_price.public.by_income_level.${bracket}`] as number | null) ??
+    (record[`latest.cost.net_price.private.by_income_level.${bracket}`] as number | null) ??
+    undefined
+  );
 }
 
 const SchoolProfileSchema = z.object({
@@ -43,26 +61,14 @@ const SchoolProfileSchema = z.object({
   tuition_in_state: z.number().optional().describe('In-state tuition and fees.'),
   tuition_out_of_state: z.number().optional().describe('Out-of-state tuition and fees.'),
   net_price_overall: z.number().optional().describe('Average net price (all income levels).'),
-  net_price_0_30k: z
-    .number()
-    .optional()
-    .describe('Average net price for family income $0–$30,000.'),
-  net_price_30k_48k: z
-    .number()
-    .optional()
-    .describe('Average net price for family income $30,001–$48,000.'),
-  net_price_48k_75k: z
-    .number()
-    .optional()
-    .describe('Average net price for family income $48,001–$75,000.'),
+  net_price_0_30k: z.number().optional().describe('Net price for family income $0–$30,000.'),
+  net_price_30k_48k: z.number().optional().describe('Net price for family income $30,001–$48,000.'),
+  net_price_48k_75k: z.number().optional().describe('Net price for family income $48,001–$75,000.'),
   net_price_75k_110k: z
     .number()
     .optional()
-    .describe('Average net price for family income $75,001–$110,000.'),
-  net_price_110k_plus: z
-    .number()
-    .optional()
-    .describe('Average net price for family income $110,001+.'),
+    .describe('Net price for family income $75,001–$110,000.'),
+  net_price_110k_plus: z.number().optional().describe('Net price for family income $110,001+.'),
   cost_of_attendance: z.number().optional().describe('Total cost of attendance per year.'),
   // Aid
   median_debt: z.number().optional().describe('Median debt at graduation (completers).'),
@@ -71,10 +77,12 @@ const SchoolProfileSchema = z.object({
     .number()
     .optional()
     .describe('Share of students receiving federal loans (0–1).'),
-  repayment_rate_3yr: z
+  repayment_progress_3yr: z
     .number()
     .optional()
-    .describe('3-year loan repayment rate (share not in default, 0–1).'),
+    .describe(
+      'Share of borrowers paying down principal (declining loan balance) 3 years after entering repayment (0–1).',
+    ),
   // Completion
   completion_rate: z.number().optional().describe('Completion rate at 150% normal time.'),
   // Earnings
@@ -212,20 +220,20 @@ export const getSchoolTool = tool('scorecard_get_school', {
         ...(r['latest.cost.avg_net_price.overall'] != null && {
           net_price_overall: r['latest.cost.avg_net_price.overall'],
         }),
-        ...(r['latest.cost.avg_net_price.by_income.0-30000'] != null && {
-          net_price_0_30k: r['latest.cost.avg_net_price.by_income.0-30000'],
+        ...(netPriceBracket(r, '0-30000') != null && {
+          net_price_0_30k: netPriceBracket(r, '0-30000'),
         }),
-        ...(r['latest.cost.avg_net_price.by_income.30001-48000'] != null && {
-          net_price_30k_48k: r['latest.cost.avg_net_price.by_income.30001-48000'],
+        ...(netPriceBracket(r, '30001-48000') != null && {
+          net_price_30k_48k: netPriceBracket(r, '30001-48000'),
         }),
-        ...(r['latest.cost.avg_net_price.by_income.48001-75000'] != null && {
-          net_price_48k_75k: r['latest.cost.avg_net_price.by_income.48001-75000'],
+        ...(netPriceBracket(r, '48001-75000') != null && {
+          net_price_48k_75k: netPriceBracket(r, '48001-75000'),
         }),
-        ...(r['latest.cost.avg_net_price.by_income.75001-110000'] != null && {
-          net_price_75k_110k: r['latest.cost.avg_net_price.by_income.75001-110000'],
+        ...(netPriceBracket(r, '75001-110000') != null && {
+          net_price_75k_110k: netPriceBracket(r, '75001-110000'),
         }),
-        ...(r['latest.cost.avg_net_price.by_income.110001-plus'] != null && {
-          net_price_110k_plus: r['latest.cost.avg_net_price.by_income.110001-plus'],
+        ...(netPriceBracket(r, '110001-plus') != null && {
+          net_price_110k_plus: netPriceBracket(r, '110001-plus'),
         }),
         ...(r['latest.cost.attendance.academic_year'] != null && {
           cost_of_attendance: r['latest.cost.attendance.academic_year'],
@@ -239,8 +247,8 @@ export const getSchoolTool = tool('scorecard_get_school', {
         ...(r['latest.aid.federal_loan_rate'] != null && {
           federal_loan_rate: r['latest.aid.federal_loan_rate'],
         }),
-        ...(r['latest.repayment.3_yr_repayment.overall'] != null && {
-          repayment_rate_3yr: (r['latest.repayment.3_yr_repayment.overall'] as number) / 1000,
+        ...(r['latest.repayment.repayment_cohort.3_year_declining_balance'] != null && {
+          repayment_progress_3yr: r['latest.repayment.repayment_cohort.3_year_declining_balance'],
         }),
         ...(r['latest.completion.rate_suppressed.overall'] != null && {
           completion_rate: r['latest.completion.rate_suppressed.overall'],
@@ -327,7 +335,9 @@ export const getSchoolTool = tool('scorecard_get_school', {
       if (s.pell_grant_rate != null) lines.push(`Pell Grant Rate: ${fmtPct(s.pell_grant_rate)}`);
       if (s.federal_loan_rate != null)
         lines.push(`Federal Loan Rate: ${fmtPct(s.federal_loan_rate)}`);
-      lines.push(`3-Year Repayment Rate: ${fmtPct(s.repayment_rate_3yr)}`);
+      lines.push(
+        `3-Year Repayment Progress (declining balance): ${fmtPct(s.repayment_progress_3yr)}`,
+      );
 
       lines.push('\n**Outcomes**');
       lines.push(`Completion Rate (150%): ${fmtPct(s.completion_rate)}`);
