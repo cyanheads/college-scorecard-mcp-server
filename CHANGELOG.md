@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.7](changelog/0.1.x/0.1.7.md) — 2026-06-19
+
+Adopt @cyanheads/mcp-ts-core ^0.10.8 — devcheck fresh-scaffold guards, check-skill-versions worktree-deletion guard, seven re-synced skills, biome 2.5; plus @types/node ^26 and a dependency refresh. No tool surface changes.
+
 ## [0.1.6](changelog/0.1.x/0.1.6.md) — 2026-06-19
 
 Repayment field corrected and renamed (repayment_rate_3yr → repayment_progress_3yr; was a borrower count rendering as ~1078%), and net price by income bracket now populates via the correct ownership-keyed API paths (was always null). Dependency refresh.
