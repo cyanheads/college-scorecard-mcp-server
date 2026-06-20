@@ -11,9 +11,9 @@
     "ignorePatterns": []
   },
   "outdated": {
-    "allowlist": ["@cyanheads/mcp-ts-core", "@types/node"]
+    "allowlist": []
   },
   "skillVersions": {
-    "ignore": ["report-issue-local"]
+    "ignore": []
   }
 }
