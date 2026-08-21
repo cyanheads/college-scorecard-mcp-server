@@ -3,7 +3,7 @@
  * @module tests/tools/list-fields.tool.test
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { describe, expect, it } from 'vitest';
 import { listFieldsTool } from '@/mcp-server/tools/definitions/list-fields.tool.js';
 
@@ -55,6 +55,33 @@ describe('listFieldsTool', () => {
     expect(() => listFieldsTool.handler(input, ctx)).toThrow();
   });
 
+  describe('enrichment on every return path', () => {
+    it('emits truncation fields as false on a sub-cap result', async () => {
+      const result = await runToolContract(listFieldsTool, { query: 'tuition', limit: 30 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        totalMatches: 2,
+        truncated: false,
+        shown: 2,
+        cap: 30,
+      });
+      const text = result.content.map((b) => (b as { text?: string }).text ?? '').join('\n');
+      expect(text).toContain('**truncated:** false');
+      expect(text).toContain('**shown:** 2');
+      expect(text).toContain('**cap:** 30');
+    });
+
+    it('marks truncation when matches fill the limit exactly', async () => {
+      const result = await runToolContract(listFieldsTool, { query: 'earnings', limit: 5 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        truncated: true,
+        shown: 5,
+        cap: 5,
+      });
+    });
+  });
+
   it('formats output with path, type, category, and sortable', () => {
     const output = {
       query: 'tuition',
@@ -71,7 +98,7 @@ describe('listFieldsTool', () => {
       tip: undefined,
     };
     const blocks = listFieldsTool.format!(output);
-    expect(blocks[0].type).toBe('text');
+    expect(blocks[0]!.type).toBe('text');
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('latest.cost.tuition.in_state');
     expect(text).toContain('integer');

@@ -3,7 +3,7 @@
  * @module tests/tools/search-programs.tool.test
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchProgramsTool } from '@/mcp-server/tools/definitions/search-programs.tool.js';
 
@@ -47,10 +47,10 @@ describe('searchProgramsTool', () => {
     const input = searchProgramsTool.input.parse({ cip_code: '11.07' });
     const result = await searchProgramsTool.handler(input, ctx);
     expect(result.programs.length).toBe(1);
-    expect(result.programs[0].school_id).toBe(236948);
-    expect(result.programs[0].program_code).toBe('11.07');
-    expect(result.programs[0].earnings_1yr_median).toBe(72000);
-    expect(result.programs[0].suppressed).toBe(false);
+    expect(result.programs[0]!.school_id).toBe(236948);
+    expect(result.programs[0]!.program_code).toBe('11.07');
+    expect(result.programs[0]!.earnings_1yr_median).toBe(72000);
+    expect(result.programs[0]!.suppressed).toBe(false);
   });
 
   it('marks programs as suppressed when earnings are null', async () => {
@@ -71,7 +71,7 @@ describe('searchProgramsTool', () => {
     const ctx = createMockContext({ errors: searchProgramsTool.errors });
     const input = searchProgramsTool.input.parse({ cip_code: '51.38' });
     const result = await searchProgramsTool.handler(input, ctx);
-    expect(result.programs[0].suppressed).toBe(true);
+    expect(result.programs[0]!.suppressed).toBe(true);
     expect(result.suppressed_count).toBe(1);
   });
 
@@ -82,6 +82,55 @@ describe('searchProgramsTool', () => {
     const result = await searchProgramsTool.handler(input, ctx);
     expect(getEnrichment(ctx).notice).toBeDefined();
     expect(result.programs.length).toBe(0);
+  });
+
+  describe('enrichment on every return path', () => {
+    it('emits truncation fields as false on a sub-cap result', async () => {
+      mockSearchPrograms.mockResolvedValue(makeResponse());
+      const result = await runToolContract(searchProgramsTool, { cip_code: '11.07' });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        truncated: false,
+        shown: 1,
+        cap: 20,
+        totalCount: 1,
+      });
+      const text = result.content.map((b) => (b as { text?: string }).text ?? '').join('\n');
+      expect(text).toContain('**truncated:** false');
+      expect(text).toContain('**shown:** 1');
+      expect(text).toContain('**cap:** 20');
+    });
+
+    it('marks truncation when the school page fills exactly to per_page', async () => {
+      mockSearchPrograms.mockResolvedValue(
+        makeResponse(Array.from({ length: 3 }, () => makeProgramRecord())),
+      );
+      const result = await runToolContract(searchProgramsTool, { cip_code: '11.07', per_page: 3 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({ truncated: true, shown: 3, cap: 3 });
+    });
+
+    it('marks truncation when results exceed per_page', async () => {
+      mockSearchPrograms.mockResolvedValue(
+        makeResponse(Array.from({ length: 5 }, () => makeProgramRecord())),
+      );
+      const result = await runToolContract(searchProgramsTool, { cip_code: '11.07', per_page: 3 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({ truncated: true, shown: 5, cap: 3 });
+    });
+
+    it('emits truncation fields on an empty result with the recovery notice', async () => {
+      mockSearchPrograms.mockResolvedValue(makeResponse([]));
+      const result = await runToolContract(searchProgramsTool, { cip_code: '99.99' });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        truncated: false,
+        shown: 0,
+        cap: 20,
+      });
+      const text = result.content.map((b) => (b as { text?: string }).text ?? '').join('\n');
+      expect(text).toContain('No programs matched');
+    });
   });
 
   it('sorts by earnings descending, suppressed last', async () => {
@@ -108,8 +157,8 @@ describe('searchProgramsTool', () => {
     const ctx = createMockContext({ errors: searchProgramsTool.errors });
     const input = searchProgramsTool.input.parse({});
     const result = await searchProgramsTool.handler(input, ctx);
-    expect(result.programs[0].earnings_1yr_median).toBeGreaterThan(
-      result.programs[1].earnings_1yr_median!,
+    expect(result.programs[0]!.earnings_1yr_median).toBeGreaterThan(
+      result.programs[1]!.earnings_1yr_median!,
     );
   });
 
@@ -132,9 +181,9 @@ describe('searchProgramsTool', () => {
     const ctx = createMockContext({ errors: searchProgramsTool.errors });
     const input = searchProgramsTool.input.parse({ cip_code: '11.07' });
     const result = await searchProgramsTool.handler(input, ctx);
-    expect(result.programs[0].earnings_1yr_median).toBeUndefined();
-    expect(result.programs[0].net_price_overall).toBeUndefined();
-    expect(result.programs[0].suppressed).toBe(true);
+    expect(result.programs[0]!.earnings_1yr_median).toBeUndefined();
+    expect(result.programs[0]!.net_price_overall).toBeUndefined();
+    expect(result.programs[0]!.suppressed).toBe(true);
   });
 
   it('formats output with school info and earnings', () => {
@@ -161,7 +210,7 @@ describe('searchProgramsTool', () => {
       suppressed_count: 0,
     };
     const blocks = searchProgramsTool.format!(output);
-    expect(blocks[0].type).toBe('text');
+    expect(blocks[0]!.type).toBe('text');
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('11.07');
     expect(text).toContain('Computer Science');

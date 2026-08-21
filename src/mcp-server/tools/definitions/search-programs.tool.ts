@@ -187,6 +187,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
     const suppressed_count = allPrograms.filter((p) => p.suppressed).length;
 
     ctx.enrich.total(response.metadata.total);
+    ctx.enrich({ truncated: false, shown: response.results.length, cap: input.per_page });
     if (allPrograms.length === 0) {
       ctx.enrich.notice(
         `No programs matched the applied filters. Try removing min_earnings or max_net_price constraints, or use scorecard_lookup_cip to find the correct CIP code.`,

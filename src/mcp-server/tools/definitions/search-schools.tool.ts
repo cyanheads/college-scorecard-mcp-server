@@ -210,6 +210,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
     }));
 
     ctx.enrich.total(response.metadata.total);
+    ctx.enrich({ truncated: false, shown: schools.length, cap: input.per_page });
     if (schools.length === 0) {
       ctx.enrich.notice(
         `No schools matched the applied filters. Try removing state, size, or acceptance rate filters.`,

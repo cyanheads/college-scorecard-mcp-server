@@ -3,7 +3,7 @@
  * @module tests/tools/search-schools.tool.test
  */
 
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchSchoolsTool } from '@/mcp-server/tools/definitions/search-schools.tool.js';
 
@@ -43,9 +43,9 @@ describe('searchSchoolsTool', () => {
     const input = searchSchoolsTool.input.parse({ query: 'University of Washington' });
     const result = await searchSchoolsTool.handler(input, ctx);
     expect(result.schools.length).toBe(1);
-    expect(result.schools[0].name).toBe('University of Washington');
-    expect(result.schools[0].ownership).toBe('Public');
-    expect(result.schools[0].degree_level).toBe("Bachelor's");
+    expect(result.schools[0]!.name).toBe('University of Washington');
+    expect(result.schools[0]!.ownership).toBe('Public');
+    expect(result.schools[0]!.degree_level).toBe("Bachelor's");
     expect(result.total).toBe(1);
   });
 
@@ -74,6 +74,12 @@ describe('searchSchoolsTool', () => {
     expect(mockSearchSchools).toHaveBeenCalledOnce();
   });
 
+  it('rejects unrecognized input keys at the root (strict input schema)', () => {
+    expect(() => searchSchoolsTool.input.parse({ query: 'x', bogus_key: 1 })).toThrow(
+      /unrecognized_keys|Unrecognized/i,
+    );
+  });
+
   it('handles sparse upstream records with missing optional fields', async () => {
     mockSearchSchools.mockResolvedValue(
       makeResponse([
@@ -97,9 +103,9 @@ describe('searchSchoolsTool', () => {
     const ctx = createMockContext({ errors: searchSchoolsTool.errors });
     const input = searchSchoolsTool.input.parse({ query: 'Sparse College' });
     const result = await searchSchoolsTool.handler(input, ctx);
-    expect(result.schools[0].enrollment).toBeUndefined();
-    expect(result.schools[0].admission_rate).toBeUndefined();
-    expect(result.schools[0].tuition_in_state).toBeUndefined();
+    expect(result.schools[0]!.enrollment).toBeUndefined();
+    expect(result.schools[0]!.admission_rate).toBeUndefined();
+    expect(result.schools[0]!.tuition_in_state).toBeUndefined();
   });
 
   it('enriches a notice when no schools are returned', async () => {
@@ -132,6 +138,55 @@ describe('searchSchoolsTool', () => {
     await expect(searchSchoolsTool.handler(input, ctx)).rejects.toThrow();
   });
 
+  describe('enrichment on every return path', () => {
+    it('emits truncation fields as false on a sub-cap result', async () => {
+      mockSearchSchools.mockResolvedValue(makeResponse());
+      const result = await runToolContract(searchSchoolsTool, {
+        query: 'University of Washington',
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        total: 1,
+        truncated: false,
+        shown: 1,
+        cap: 20,
+        totalCount: 1,
+      });
+      const text = result.content.map((b) => (b as { text?: string }).text ?? '').join('\n');
+      expect(text).toContain('**truncated:** false');
+      expect(text).toContain('**shown:** 1');
+      expect(text).toContain('**cap:** 20');
+    });
+
+    it('marks truncation when the page fills exactly to per_page', async () => {
+      mockSearchSchools.mockResolvedValue(makeResponse(Array.from({ length: 3 }, () => ({}))));
+      const result = await runToolContract(searchSchoolsTool, { query: 'University', per_page: 3 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({ truncated: true, shown: 3, cap: 3 });
+    });
+
+    it('marks truncation when results exceed per_page', async () => {
+      mockSearchSchools.mockResolvedValue(makeResponse(Array.from({ length: 5 }, () => ({}))));
+      const result = await runToolContract(searchSchoolsTool, { query: 'University', per_page: 3 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({ truncated: true, shown: 5, cap: 3 });
+    });
+
+    it('emits truncation fields on an empty result with the recovery notice', async () => {
+      mockSearchSchools.mockResolvedValue(makeResponse([]));
+      const result = await runToolContract(searchSchoolsTool, { query: 'ZZZ nonexistent' });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        total: 0,
+        truncated: false,
+        shown: 0,
+        cap: 20,
+      });
+      const text = result.content.map((b) => (b as { text?: string }).text ?? '').join('\n');
+      expect(text).toContain('No schools matched');
+    });
+  });
+
   it('formats output with school names and IDs', () => {
     const output = {
       total: 1,
@@ -156,7 +211,7 @@ describe('searchSchoolsTool', () => {
       ],
     };
     const blocks = searchSchoolsTool.format!(output);
-    expect(blocks[0].type).toBe('text');
+    expect(blocks[0]!.type).toBe('text');
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('University of Washington');
     expect(text).toContain('236948');

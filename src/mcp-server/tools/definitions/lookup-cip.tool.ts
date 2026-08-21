@@ -73,6 +73,7 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
       });
     }
 
+    ctx.enrich({ truncated: false, shown: results.length, cap: input.limit });
     if (results.length >= input.limit) {
       ctx.enrich.truncated({
         shown: results.length,

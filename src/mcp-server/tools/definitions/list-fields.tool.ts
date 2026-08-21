@@ -76,6 +76,7 @@ export const listFieldsTool = tool('scorecard_list_fields', {
       });
     }
 
+    ctx.enrich({ truncated: false, shown: results.length, cap: input.limit });
     if (results.length >= input.limit) {
       ctx.enrich.truncated({
         shown: results.length,
