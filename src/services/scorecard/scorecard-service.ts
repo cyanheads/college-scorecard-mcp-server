@@ -6,7 +6,7 @@
 
 import type { Context } from '@cyanheads/mcp-ts-core';
 import type { AppConfig } from '@cyanheads/mcp-ts-core/config';
-import { notFound, serviceUnavailable } from '@cyanheads/mcp-ts-core/errors';
+import { serviceUnavailable, validationError } from '@cyanheads/mcp-ts-core/errors';
 import type { StorageService } from '@cyanheads/mcp-ts-core/storage';
 import { withRetry } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
@@ -249,7 +249,7 @@ export class ScorecardService {
     fields: string | undefined,
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
-    if (ids.length === 0) throw notFound('No school IDs provided.');
+    if (ids.length === 0) throw validationError('No school IDs provided.');
 
     const params: Record<string, string | number | undefined> = {
       id: ids.join(','),
