@@ -135,7 +135,7 @@ describe('valueAnalysisTool', () => {
       data_notes: [],
     };
     const blocks = valueAnalysisTool.format!(output);
-    expect(blocks[0].type).toBe('text');
+    expect(blocks[0]!.type).toBe('text');
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('University of Washington');
     expect(text).toContain('11,839');

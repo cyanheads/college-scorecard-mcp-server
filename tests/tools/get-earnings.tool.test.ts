@@ -81,7 +81,7 @@ describe('getEarningsTool', () => {
     const result = await getEarningsTool.handler(input, ctx);
     expect(result.trend).toBeDefined();
     expect(result.trend!.length).toBe(2);
-    expect(result.trend![0].year).toBe(2011);
+    expect(result.trend![0]!.year).toBe(2011);
   });
 
   it('omits trend when years not supplied', async () => {
@@ -123,7 +123,7 @@ describe('getEarningsTool', () => {
       suppressed: false,
     };
     const blocks = getEarningsTool.format!(output);
-    expect(blocks[0].type).toBe('text');
+    expect(blocks[0]!.type).toBe('text');
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('University of Washington');
     expect(text).toContain('50,000');

@@ -56,8 +56,8 @@ describe('getSchoolTool', () => {
     const input = getSchoolTool.input.parse({ id: 236948 });
     const result = await getSchoolTool.handler(input, ctx);
     expect(result.schools.length).toBe(1);
-    expect(result.schools[0].name).toBe('University of Washington');
-    expect(result.schools[0].ownership).toBe('Public');
+    expect(result.schools[0]!.name).toBe('University of Washington');
+    expect(result.schools[0]!.ownership).toBe('Public');
     expect(result.total_requested).toBe(1);
     expect(result.total_found).toBe(1);
   });
@@ -115,9 +115,9 @@ describe('getSchoolTool', () => {
     const ctx = createMockContext({ errors: getSchoolTool.errors });
     const input = getSchoolTool.input.parse({ id: 236948 });
     const result = await getSchoolTool.handler(input, ctx);
-    expect(result.schools[0].city).toBeUndefined();
-    expect(result.schools[0].enrollment).toBeUndefined();
-    expect(result.schools[0].admission_rate).toBeUndefined();
+    expect(result.schools[0]!.city).toBeUndefined();
+    expect(result.schools[0]!.enrollment).toBeUndefined();
+    expect(result.schools[0]!.admission_rate).toBeUndefined();
   });
 
   // Regression (issue #6): repayment_progress_3yr reads
@@ -129,8 +129,8 @@ describe('getSchoolTool', () => {
     const ctx = createMockContext({ errors: getSchoolTool.errors });
     const input = getSchoolTool.input.parse({ id: 236948 });
     const result = await getSchoolTool.handler(input, ctx);
-    expect(result.schools[0].repayment_progress_3yr).toBeCloseTo(0.7903764139, 5);
-    expect(result.schools[0].repayment_progress_3yr!).toBeLessThanOrEqual(1);
+    expect(result.schools[0]!.repayment_progress_3yr).toBeCloseTo(0.7903764139, 5);
+    expect(result.schools[0]!.repayment_progress_3yr).toBeLessThanOrEqual(1);
   });
 
   // Regression (issue #7): net price by income reads the ownership-keyed
@@ -141,8 +141,8 @@ describe('getSchoolTool', () => {
     const ctx = createMockContext({ errors: getSchoolTool.errors });
     const input = getSchoolTool.input.parse({ id: 236948 });
     const result = await getSchoolTool.handler(input, ctx);
-    expect(result.schools[0].net_price_0_30k).toBe(6384);
-    expect(result.schools[0].net_price_110k_plus).toBe(30019);
+    expect(result.schools[0]!.net_price_0_30k).toBe(6384);
+    expect(result.schools[0]!.net_price_110k_plus).toBe(30019);
   });
 
   // Issue #7: a private school reports brackets under net_price.private.*; the
@@ -162,8 +162,8 @@ describe('getSchoolTool', () => {
     const ctx = createMockContext({ errors: getSchoolTool.errors });
     const input = getSchoolTool.input.parse({ id: 236948 });
     const result = await getSchoolTool.handler(input, ctx);
-    expect(result.schools[0].ownership).toBe('Private nonprofit');
-    expect(result.schools[0].net_price_0_30k).toBe(8697);
+    expect(result.schools[0]!.ownership).toBe('Private nonprofit');
+    expect(result.schools[0]!.net_price_0_30k).toBe(8697);
   });
 
   it('formats output with school name, ID, and metrics', () => {
@@ -190,7 +190,7 @@ describe('getSchoolTool', () => {
       total_found: 1,
     };
     const blocks = getSchoolTool.format!(output);
-    expect(blocks[0].type).toBe('text');
+    expect(blocks[0]!.type).toBe('text');
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('University of Washington');
     expect(text).toContain('236948');

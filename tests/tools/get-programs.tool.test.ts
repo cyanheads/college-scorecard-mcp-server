@@ -23,7 +23,7 @@ const makeCsProgram = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const makeProgramsResult = (programs = [makeCsProgram()]) => ({
+const makeProgramsResult = (programs: Record<string, unknown>[] = [makeCsProgram()]) => ({
   metadata: { total: 1, page: 0, per_page: 1 },
   results: [
     {
@@ -47,9 +47,9 @@ describe('getProgramsTool', () => {
     expect(result.school_id).toBe(236948);
     expect(result.school_name).toBe('University of Washington');
     expect(result.programs.length).toBe(1);
-    expect(result.programs[0].code).toBe('11.07');
-    expect(result.programs[0].earnings_1yr_median).toBe(72000);
-    expect(result.programs[0].suppressed).toBe(false);
+    expect(result.programs[0]!.code).toBe('11.07');
+    expect(result.programs[0]!.earnings_1yr_median).toBe(72000);
+    expect(result.programs[0]!.suppressed).toBe(false);
   });
 
   it('marks program as suppressed when earnings are missing', async () => {
@@ -59,8 +59,8 @@ describe('getProgramsTool', () => {
     const ctx = createMockContext({ errors: getProgramsTool.errors });
     const input = getProgramsTool.input.parse({ id: 236948 });
     const result = await getProgramsTool.handler(input, ctx);
-    expect(result.programs[0].suppressed).toBe(true);
-    expect(result.programs[0].suppression_note).toBeDefined();
+    expect(result.programs[0]!.suppressed).toBe(true);
+    expect(result.programs[0]!.suppression_note).toBeDefined();
     expect(result.suppressed_count).toBe(1);
   });
 
@@ -104,9 +104,9 @@ describe('getProgramsTool', () => {
     const ctx = createMockContext({ errors: getProgramsTool.errors });
     const input = getProgramsTool.input.parse({ id: 236948 });
     const result = await getProgramsTool.handler(input, ctx);
-    expect(result.programs[0].earnings_1yr_median).toBeUndefined();
-    expect(result.programs[0].median_debt).toBeUndefined();
-    expect(result.programs[0].suppressed).toBe(true);
+    expect(result.programs[0]!.earnings_1yr_median).toBeUndefined();
+    expect(result.programs[0]!.median_debt).toBeUndefined();
+    expect(result.programs[0]!.suppressed).toBe(true);
   });
 
   it('formats output with earnings, debt, and suppression note', () => {
@@ -136,7 +136,7 @@ describe('getProgramsTool', () => {
       suppressed_count: 1,
     };
     const blocks = getProgramsTool.format!(output);
-    expect(blocks[0].type).toBe('text');
+    expect(blocks[0]!.type).toBe('text');
     const text = (blocks[0] as { text: string }).text;
     expect(text).toContain('11.07');
     expect(text).toContain('72,000');
