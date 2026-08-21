@@ -1,11 +1,9 @@
 # college-scorecard-mcp-server - Directory Structure
 
-Generated on: 2026-06-12 07:20:03
+Generated on: 2026-08-21 15:49:21
 
 ```text
 college-scorecard-mcp-server/
-├── .agents/
-├── .claude/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── .codex-plugin/
@@ -16,7 +14,10 @@ college-scorecard-mcp-server/
 │   │   ├── bug_report.yml
 │   │   ├── config.yml
 │   │   └── feature_request.yml
-│   └── FUNDING.yml
+│   ├── CODE_OF_CONDUCT.md
+│   ├── CONTRIBUTING.md
+│   ├── FUNDING.yml
+│   └── SECURITY.md
 ├── .vscode/
 │   ├── extensions.json
 │   └── settings.json
@@ -29,6 +30,7 @@ college-scorecard-mcp-server/
 ├── scripts/
 │   ├── build-changelog.ts
 │   ├── build.ts
+│   ├── check-dependency-specifiers.ts
 │   ├── check-docs-sync.ts
 │   ├── check-framework-antipatterns.ts
 │   ├── check-skill-versions.ts
@@ -130,12 +132,15 @@ college-scorecard-mcp-server/
 │   ├── config/
 │   │   └── server-config.ts
 │   ├── data/
+│   │   ├── cip-codes.ts
+│   │   └── field-catalog.ts
 │   ├── mcp-server/
 │   │   ├── prompts/
 │   │   │   └── definitions/
 │   │   │       └── compare.prompt.ts
 │   │   ├── resources/
 │   │   │   └── definitions/
+│   │   │       ├── example-schools.ts
 │   │   │       ├── programs.resource.ts
 │   │   │       └── school.resource.ts
 │   │   ├── tools/
@@ -173,6 +178,7 @@ college-scorecard-mcp-server/
 │       └── value-analysis.tool.test.ts
 ├── .dockerignore
 ├── .env.example
+├── .gitattributes
 ├── .gitignore
 ├── .mcpbignore
 ├── biome.json
@@ -183,6 +189,7 @@ college-scorecard-mcp-server/
 ├── CLAUDE.md
 ├── devcheck.config.json
 ├── Dockerfile
+├── LICENSE
 ├── manifest.json
 ├── package.json
 ├── README.md

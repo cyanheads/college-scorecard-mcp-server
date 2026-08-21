@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.8](changelog/0.1.x/0.1.8.md) — 2026-08-21
+
+Adopt @cyanheads/mcp-ts-core ^0.12.3 (MCP SDK ^2.0.0 era) with a TypeScript 7 / Bun 1.4 toolchain refresh; fix enrichment truncation fields failing output validation, resources/list discovery, and empty-ID error classification.
+
 ## [0.1.7](changelog/0.1.x/0.1.7.md) — 2026-06-19
 
 Adopt @cyanheads/mcp-ts-core ^0.10.8 — devcheck fresh-scaffold guards, check-skill-versions worktree-deletion guard, seven re-synced skills, biome 2.5; plus @types/node ^26 and a dependency refresh. No tool surface changes.
