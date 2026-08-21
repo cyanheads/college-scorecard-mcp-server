@@ -40,7 +40,7 @@ describe('programsResource', () => {
       ],
     });
     const ctx = createMockContext({ tenantId: 'test-tenant' });
-    const params = programsResource.params.parse({ id: '236948' });
+    const params = programsResource.params!.parse({ id: '236948' });
     const result = (await programsResource.handler(params, ctx)) as Record<string, unknown>;
     expect(result.school_id).toBe(236948);
     expect(result.school_name).toBe('University of Washington');
@@ -60,10 +60,10 @@ describe('programsResource', () => {
       ],
     });
     const ctx = createMockContext({ tenantId: 'test-tenant' });
-    const params = programsResource.params.parse({ id: '236948' });
+    const params = programsResource.params!.parse({ id: '236948' });
     const result = (await programsResource.handler(params, ctx)) as Record<string, unknown>;
     const programs = result.programs as Array<Record<string, unknown>>;
-    expect(programs[0].earnings_1yr_median).toBeNull();
+    expect(programs[0]!.earnings_1yr_median).toBeNull();
   });
 
   it('returns empty programs array when school has no programs', async () => {
@@ -78,7 +78,7 @@ describe('programsResource', () => {
       ],
     });
     const ctx = createMockContext({ tenantId: 'test-tenant' });
-    const params = programsResource.params.parse({ id: '236948' });
+    const params = programsResource.params!.parse({ id: '236948' });
     const result = (await programsResource.handler(params, ctx)) as Record<string, unknown>;
     expect((result.programs as unknown[]).length).toBe(0);
     expect(result.total).toBe(0);
@@ -90,7 +90,41 @@ describe('programsResource', () => {
       results: [],
     });
     const ctx = createMockContext({ tenantId: 'test-tenant' });
-    const params = programsResource.params.parse({ id: '999999' });
+    const params = programsResource.params!.parse({ id: '999999' });
     await expect(programsResource.handler(params, ctx)).rejects.toThrow(McpError);
+  });
+
+  it('advertises representative entries through list()', async () => {
+    expect(programsResource.list).toBeDefined();
+    const result = await programsResource.list!({} as never);
+    expect(result.resources.length).toBeGreaterThan(0);
+    for (const entry of result.resources) {
+      expect(String(entry.uri)).toMatch(/^scorecard:\/\/programs\/\d+$/);
+      expect(entry.name).toBeTruthy();
+      expect(entry.mimeType).toBe('application/json');
+    }
+  });
+
+  it('resolves every advertised list entry through the handler', async () => {
+    expect(programsResource.list).toBeDefined();
+    const { resources } = await programsResource.list!({} as never);
+    expect(resources.length).toBeGreaterThan(0);
+    mockGetSchoolPrograms.mockResolvedValue({
+      metadata: { total: 1, page: 0, per_page: 1 },
+      results: [
+        {
+          id: Number(String(resources[0]!.uri).split('/').pop()),
+          'school.name': 'Advertised School',
+          'latest.programs.cip_4_digit': [makeProgram()],
+        },
+      ],
+    });
+    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const params = programsResource.params!.parse({
+      id: String(resources[0]!.uri).split('/').pop(),
+    });
+    await expect(programsResource.handler(params, ctx)).resolves.toMatchObject({
+      school_name: 'Advertised School',
+    });
   });
 });

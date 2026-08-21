@@ -6,6 +6,7 @@
 
 import { resource, z } from '@cyanheads/mcp-ts-core';
 import { notFound } from '@cyanheads/mcp-ts-core/errors';
+import { EXAMPLE_SCHOOLS } from '@/mcp-server/resources/definitions/example-schools.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 export const programsResource = resource('scorecard://programs/{id}', {
@@ -53,4 +54,14 @@ export const programsResource = resource('scorecard://programs/{id}', {
       total: programs.length,
     };
   },
+
+  list: async () => ({
+    resources: EXAMPLE_SCHOOLS.map((school) => ({
+      uri: `scorecard://programs/${school.id}`,
+      name: `${school.name} — programs`,
+      description:
+        'Example program-level outcomes feed — one of a few representative entries; discover other unit IDs with scorecard_search_schools.',
+      mimeType: 'application/json',
+    })),
+  }),
 });

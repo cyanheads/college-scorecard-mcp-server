@@ -41,7 +41,7 @@ describe('schoolResource', () => {
       ],
     });
     const ctx = createMockContext({ tenantId: 'test-tenant' });
-    const params = schoolResource.params.parse({ id: '236948' });
+    const params = schoolResource.params!.parse({ id: '236948' });
     const result = await schoolResource.handler(params, ctx);
     expect(result).toMatchObject({
       id: 236948,
@@ -57,7 +57,7 @@ describe('schoolResource', () => {
       results: [],
     });
     const ctx = createMockContext({ tenantId: 'test-tenant' });
-    const params = schoolResource.params.parse({ id: '999999' });
+    const params = schoolResource.params!.parse({ id: '999999' });
     await expect(schoolResource.handler(params, ctx)).rejects.toThrow(McpError);
   });
 
@@ -80,10 +80,43 @@ describe('schoolResource', () => {
       ],
     });
     const ctx = createMockContext({ tenantId: 'test-tenant' });
-    const params = schoolResource.params.parse({ id: '999' });
+    const params = schoolResource.params!.parse({ id: '999' });
     const result = await schoolResource.handler(params, ctx);
     expect(result).toMatchObject({ id: 999, name: 'Sparse College' });
     expect((result as Record<string, unknown>).tuition_in_state).toBeNull();
     expect((result as Record<string, unknown>).admission_rate).toBeNull();
+  });
+
+  it('advertises representative entries through list()', async () => {
+    expect(schoolResource.list).toBeDefined();
+    const result = await schoolResource.list!({} as never);
+    expect(result.resources.length).toBeGreaterThan(0);
+    for (const entry of result.resources) {
+      expect(String(entry.uri)).toMatch(/^scorecard:\/\/school\/\d+$/);
+      expect(entry.name).toBeTruthy();
+      expect(entry.mimeType).toBe('application/json');
+    }
+  });
+
+  it('resolves every advertised list entry through the handler', async () => {
+    expect(schoolResource.list).toBeDefined();
+    const { resources } = await schoolResource.list!({} as never);
+    expect(resources.length).toBeGreaterThan(0);
+    mockGetSchoolProfiles.mockResolvedValue({
+      metadata: { total: 1, page: 0, per_page: 1 },
+      results: [
+        {
+          id: Number(String(resources[0]!.uri).split('/').pop()),
+          'school.name': 'Advertised School',
+        },
+      ],
+    });
+    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const params = schoolResource.params!.parse({
+      id: String(resources[0]!.uri).split('/').pop(),
+    });
+    await expect(schoolResource.handler(params, ctx)).resolves.toMatchObject({
+      name: 'Advertised School',
+    });
   });
 });
