@@ -21,25 +21,42 @@
 
 ---
 
-## Tools
+## Overview
 
-9 tools for working with U.S. Department of Education College Scorecard data — institution search, program-level earnings, cost and outcomes analysis, and structured comparison:
+U.S. college data from the Department of Education College Scorecard API — costs, earnings, programs, and outcomes across roughly 6,500 Title IV institutions. Search and compare schools, look up program-level earnings by field of study, and compute ROI metrics like debt-to-earnings ratio from any MCP client. Runs as a stdio process or a local Streamable HTTP server.
+
+### Tools
 
 | Tool | Description |
 |:---|:---|
 | `scorecard_search_schools` | Search and filter institutions by name, location, type, size, and acceptance rate range. Returns core identity and cost metrics. |
 | `scorecard_get_school` | Full institutional profile for one or more school IDs — costs, admissions, outcomes, aid, demographics, and completion rates. |
 | `scorecard_compare_schools` | Normalized side-by-side comparison of 2–5 schools on a named topic. Returns percentile-ranked rows and relative deltas within the result set. |
-| `scorecard_get_programs` | All field-of-study programs at one school: 1-year post-graduation earnings (P25/median/P75), debt at graduation, and enrollment figures. |
+| `scorecard_get_programs` | All field-of-study programs at one school: median 1-year post-graduation earnings, debt at graduation, and enrollment figures. |
 | `scorecard_search_programs` | Find programs by CIP code or keyword across all institutions, ranked by median earnings. Accepts school-side filters (state, ownership, max cost). |
-| `scorecard_get_earnings` | Institution-level post-graduation earnings for one school — median and percentiles at 6, 8, and 10 years after entry, with optional gender breakdown. |
-| `scorecard_value_analysis` | Workflow tool: parallel-fetches cost, debt, repayment, and earnings data, then computes ROI metrics — debt-to-earnings ratio, net price by income bracket, and peer comparisons. |
-| `scorecard_lookup_cip` | Search Classification of Instructional Programs (CIP) codes by keyword or partial name. Served from embedded static data — no API call or rate-limit impact. |
+| `scorecard_get_earnings` | Institution-level post-graduation earnings for one school — median at 6, 8, and 10 years after entry (P25/P75 at 6 and 10 years), with optional gender breakdown. |
+| `scorecard_value_analysis` | Workflow tool: parallel-fetches cost, debt, repayment, and earnings data, then computes ROI metrics — debt-to-earnings ratio and net price to earnings ratio. |
+| `scorecard_lookup_cip` | Search a curated ~160-code Classification of Instructional Programs (CIP) taxonomy by keyword or partial name. Served from embedded static data — no API call or rate-limit impact. |
 | `scorecard_list_fields` | Search the Scorecard field catalog by keyword. Returns matching field paths, descriptions, data types, and sort support. Use before passing custom `fields` parameters. |
 
-### `scorecard_search_schools`
+### Resources
 
-Search for institutions using name, location, and institutional filters.
+| Resource | Description |
+|:---|:---|
+| `scorecard://school/{id}` | Institutional profile by unit ID — injectable context for school-specific conversations |
+| `scorecard://programs/{id}` | Program-level outcomes for a school |
+
+All resource data is also reachable via tools. Use `scorecard_search_schools` or `scorecard_get_school` to discover school IDs before constructing resource URIs.
+
+### Prompts
+
+| Prompt | Description |
+|:---|:---|
+| `scorecard_compare_prompt` | Structures a multi-school comparison analysis using Scorecard data |
+
+## Capability reference
+
+### `scorecard_search_schools` <sub>tool</sub>
 
 - Free-text name search plus typed filters: state, ownership (public/private nonprofit/private for-profit), degree level, size range, acceptance rate range
 - Geographic proximity filtering by U.S. zip code and distance (miles or km)
@@ -49,125 +66,116 @@ Search for institutions using name, location, and institutional filters.
 
 ---
 
-### `scorecard_get_school`
+### `scorecard_get_school` <sub>tool</sub>
 
-Fetch a full institutional profile by school ID.
-
-- Accepts a single ID or an array of IDs (batch fetch up to 100 per page)
+- Accepts a single ID or an array of IDs (batch fetch up to 100 per call)
 - Covers costs, admissions, outcomes, financial aid, demographics, and completion rates
 - Optional `fields` override for callers who need a narrower or broader field set
 - For side-by-side comparison on a specific dimension, use `scorecard_compare_schools`
 
 ---
 
-### `scorecard_compare_schools`
+### `scorecard_compare_schools` <sub>tool</sub>
 
-Normalized comparison across 2–5 institutions on a named topic.
-
-- Four topics: `costs`, `admissions`, `outcomes`, `aid` — each pulls a curated topic-specific field set
+- 2–5 school unit IDs per call; four topics — `costs`, `admissions`, `outcomes`, `aid` — each pulls a curated topic-specific field set
 - Computes within-set percentile ranks and relative deltas — structured output an agent cannot reconstruct from raw profiles
 - Single API call for all schools; normalization applied post-fetch
-- Distinct from `scorecard_get_school` multi-ID: output shape is rows, not profiles
+- Distinct from `scorecard_get_school` with multiple IDs: output shape is rows, not profiles
 
 ---
 
-### `scorecard_get_programs`
+### `scorecard_get_programs` <sub>tool</sub>
 
-List all field-of-study programs at one school with earnings and debt data.
-
-- Returns P25/median/P75 earnings 1 year after graduation, median debt at graduation, and enrollment figures per program
+- Returns median 1-year post-graduation earnings, median debt at graduation, and enrollment figures per program
 - Filter by CIP code to return only matching programs
-- Filter by `credential_level` (certificate, associate's, bachelor's) and minimum earnings threshold
+- Filter by `credential_level` (certificate through doctoral/professional) and minimum earnings threshold
 - Primary source for program-level earnings — institution-level earnings at 6/8/10 years are available via `scorecard_get_earnings`
-- FERPA suppression surfaced as structured `suppressed: true` flag with `suppression_note`, not bare null
+- FERPA suppression surfaced as a structured `suppressed: true` flag with `suppression_note`, not bare null
 
 ---
 
-### `scorecard_search_programs`
-
-Find programs by CIP code or name across all institutions, ranked by median earnings.
+### `scorecard_search_programs` <sub>tool</sub>
 
 - Program-centric: "which schools in Washington have CS programs with median earnings over $80k?"
-- Accepts school-side filters: state, ownership, max net price
-- Earnings and debt thresholds for filtering results
-- Returns school name, school ID, and unit ID alongside program metrics for follow-up chaining
-- Sorting applied post-fetch where earnings fields are not API-indexed
+- School-side filters: state, ownership, max net price; program-side filters: min earnings, max debt
+- Pagination (`per_page` up to 100, zero-indexed `page`) is at the school level — a school with multiple matching programs can return more rows than `per_page`
+- Returns school ID (unit ID) and name alongside program metrics for chaining to `scorecard_get_school` or `scorecard_get_programs`
+- Sorting applied post-fetch since earnings fields aren't API-indexed
 
 ---
 
-### `scorecard_get_earnings`
+### `scorecard_get_earnings` <sub>tool</sub>
 
-Institution-level post-graduation earnings for one school.
-
-- Median and P25/P75 earnings at 6, 8, and 10 years after entry
-- Optional gender breakdown when available
-- `years` parameter for time-series analysis; defaults to `latest.*` for current-state queries
-- Reflects outcomes across all graduates, not broken down by program
+- Median earnings at 6, 8, and 10 years after entry, with P25/P75 percentiles at 6 and 10 years
+- Optional 6-year gender breakdown (`earnings_6yr_female_median` / `earnings_6yr_male_median`) when reported
+- Optional `years` array of cohort entry years returns a per-year trend row (6yr and 10yr median) alongside the current snapshot
+- Institution-wide across all graduates — for program-specific earnings use `scorecard_get_programs`, for ROI analysis use `scorecard_value_analysis`
+- Top-level `suppressed` / `suppression_note` flags when earnings are unavailable at every time point
 
 ---
 
-### `scorecard_value_analysis`
-
-Workflow tool: "Is this school worth it?"
+### `scorecard_value_analysis` <sub>tool</sub>
 
 - Parallel-fetches cost/debt/repayment and earnings data in two concurrent requests
-- Computes ROI metrics the API does not pre-calculate: debt-to-earnings ratio (median debt / 6-year earnings), net price to first-year earnings ratio, and 3-year loan repayment rate
-- `family_income` parameter selects the applicable net price bracket
-- Fetches peer school identifiers (same Carnegie category and ownership) for comparative median values
+- Computes ROI metrics the API doesn't pre-calculate: debt-to-earnings ratio (median debt / 6-year earnings) and net price to annualized 6-year earnings ratio
+- `family_income` parameter selects the applicable net price bracket ($0–30k, $30k–48k, $48k–75k, $75k–110k, $110k+)
 - Returns all source figures alongside derived metrics — callers can audit the arithmetic
-- `data_notes` flags any suppressed or null fields with structured explanations
+- `data_notes` array flags any suppressed or missing fields with plain-language explanations
 
 ---
 
-### `scorecard_lookup_cip`
+### `scorecard_lookup_cip` <sub>tool</sub>
 
-Search CIP codes by keyword or partial name.
-
-- Covers the full ~2,400-code CIP taxonomy embedded as static data
+- Curated set of ~160 common 4-digit CIP codes embedded as static data — not the full NCES taxonomy
 - No API call required — zero rate-limit impact, works offline
 - Required before using CIP-based filters when the caller knows a program by name but not code
-- Returns matching codes with standard titles
+- Up to 50 results per call (`limit`, default 20)
+- Returns matching codes with standard titles and CIP family
 
 ---
 
-### `scorecard_list_fields`
+### `scorecard_list_fields` <sub>tool</sub>
 
-Search the Scorecard field catalog by keyword.
-
-- ~2,800 field entries from the data dictionary, embedded as static data
-- Returns field paths, descriptions, data types, and whether the field supports API-side sorting
+- ~79 field entries curated from the Scorecard data dictionary, embedded as static data
 - No API call required — zero rate-limit impact
-- Use before passing custom `fields` parameters to search/get tools
+- Returns field path, description, data type, category, and whether it supports API-side sorting
+- Up to 100 results per call (`limit`, default 30)
+- Use before passing custom `fields` parameters to `scorecard_search_schools` or `scorecard_get_school`; a `tip` field flags when results include unsortable fields
 
-## Resources and prompts
+---
 
-| Type | Name | Description |
-|:---|:---|:---|
-| Resource | `scorecard://school/{id}` | Institutional profile by unit ID — injectable context for school-specific conversations |
-| Resource | `scorecard://programs/{id}` | Program-level outcomes for a school |
-| Prompt | `scorecard_compare_prompt` | Structures a multi-school comparison analysis using Scorecard data |
+### `scorecard://school/{id}` <sub>resource</sub>
 
-All resource data is also reachable via tools. Use `scorecard_search_schools` or `scorecard_get_school` to discover school IDs before constructing resource URIs.
+- Institutional profile as `application/json` — identity, cost, admissions, outcomes, aid, and completion data
+- `id` is the school unit ID (integer as string) from `scorecard_search_schools`
+- `list` returns a handful of example school URIs; use `scorecard_search_schools` to discover others
+
+---
+
+### `scorecard://programs/{id}` <sub>resource</sub>
+
+- Program-level outcomes as `application/json` — CIP code, title, credential level, 1-year earnings, debt, and enrollment per program
+- `id` is the school unit ID from `scorecard_search_schools`
+- `list` returns a handful of example school URIs; use `scorecard_search_schools` to discover others
+
+---
+
+### `scorecard_compare_prompt` <sub>prompt</sub>
+
+- Arguments: `school_names` (comma-separated list) and `focus` (`costs` | `outcomes` | `programs`), both required
+- Returns one user message sequencing `scorecard_search_schools` → `scorecard_compare_schools` → `scorecard_get_school`, plus `scorecard_get_programs`/`scorecard_lookup_cip` when focus is `programs` or `scorecard_value_analysis` otherwise
 
 ## Features
 
-Built on [`@cyanheads/mcp-ts-core`](https://www.npmjs.com/package/@cyanheads/mcp-ts-core):
-
-- Declarative tool, resource, and prompt definitions — single file per primitive, framework handles registration and validation
-- Unified error handling — handlers throw, framework catches, classifies, and formats
-- Pluggable auth: `none`, `jwt`, `oauth`
-- Swappable storage backends: `in-memory`, `filesystem`, `Supabase`, `Cloudflare KV/R2/D1`
-- Structured logging with optional OpenTelemetry tracing
-- STDIO and Streamable HTTP transports
+Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core): stdio and Streamable HTTP transports, pluggable auth (`none` / `jwt` / `oauth`), swappable storage (`in-memory`, `filesystem`, `Supabase`, `Cloudflare KV/R2/D1`), structured logging with optional OpenTelemetry tracing.
 
 College Scorecard-specific:
 
 - Full College Scorecard API coverage: ~6,500 Title IV institutions, ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings
-- Program-level post-graduation earnings: actual median earnings 1 year after graduation for ~6,500 school × CIP code combinations
-- Field pre-selection per tool — curated ~10–20 field sets appropriate to each tool's purpose; optional `fields` override for custom queries
-- Embedded CIP code taxonomy and field catalog: both served as static data with zero API calls and zero rate-limit impact
+- Program-level post-graduation earnings: median earnings 1 year after graduation per school × CIP code combination
+- Field pre-selection per tool — curated field sets appropriate to each tool's purpose; optional `fields` override for custom queries
+- Embedded CIP code taxonomy (~160 codes) and field catalog (~79 fields) served as static data — zero API calls, zero rate-limit impact
 - Geographic filtering via U.S. zip code + distance radius
-- `scorecard_value_analysis` workflow tool computes ROI metrics (debt-to-earnings ratio, net price to first-year earnings) that require multiple API round-trips and post-processing arithmetic
 
 Agent-friendly output:
 
@@ -244,7 +252,7 @@ MCP_TRANSPORT_TYPE=http MCP_HTTP_PORT=3010 SCORECARD_API_KEY=... bun run start:h
 
 ### Prerequisites
 
-- [Bun v1.3.0](https://bun.sh/) or higher (or Node.js v24+).
+- [Bun v1.4.0](https://bun.sh/) or higher (or Node.js v24+).
 - A College Scorecard API key — free registration at [api.data.gov/signup](https://api.data.gov/signup/). Rate limit: 1,000 requests/hour per key.
 
 ### Installation
@@ -285,6 +293,7 @@ All configuration is validated at startup via Zod schemas in `src/config/server-
 | `MCP_HTTP_PORT` | HTTP server port | `3010` |
 | `MCP_HTTP_ENDPOINT_PATH` | HTTP endpoint path where the MCP server is mounted | `/mcp` |
 | `MCP_PUBLIC_URL` | Public origin override for TLS-terminating reverse-proxy deployments | none |
+| `MCP_SESSION_MODE` | HTTP session mode: `stateless`, `stateful`, or `auto`. The server declares `stateless` in code; an explicit env value overrides it. | `stateless` |
 | `MCP_AUTH_MODE` | Authentication: `none`, `jwt`, or `oauth` | `none` |
 | `MCP_LOG_LEVEL` | Log level (`debug`, `info`, `warning`, `error`, etc.) | `info` |
 | `MCP_GC_PRESSURE_INTERVAL_MS` | Opt-in forced-GC pressure loop (ms, Bun only). Try `60000` if heap growth is observed under sustained HTTP load. | `0` (disabled) |
@@ -345,12 +354,12 @@ See [`CLAUDE.md`](./CLAUDE.md) for development guidelines and architectural rule
 
 - Handlers throw, framework catches — no `try/catch` in tool logic
 - Use `ctx.log` for request-scoped logging, `ctx.state` for tenant-scoped storage
-- Register new tools and resources via the barrels in `src/mcp-server/*/definitions/index.ts`
+- Register new tools, resources, and prompts in the `createApp()` arrays in `src/index.ts`
 - Wrap external API calls: validate raw → normalize to domain type → return output schema; never fabricate missing fields
 
 ## Contributing
 
-Issues and pull requests are welcome. Run checks and tests before submitting:
+Issues are welcome. Run checks and tests before submitting:
 
 ```sh
 bun run devcheck
