@@ -39,12 +39,8 @@ await createApp({
   resources: [schoolResource, programsResource],
   prompts: [comparePrompt],
   instructions:
-    'College Scorecard MCP Server — U.S. higher education data from the Department of Education.\n' +
-    '- Start with scorecard_search_schools to find institutions by name, state, or type\n' +
-    '- Use scorecard_lookup_cip to convert program names to CIP codes before filtering by program\n' +
-    '- scorecard_get_programs returns program-level 1-year earnings (not institution-level)\n' +
-    '- scorecard_value_analysis computes debt-to-earnings and ROI metrics in one call\n' +
-    '- scorecard_list_fields and scorecard_lookup_cip make zero API calls — safe to use freely',
+    'Find U.S. institutions with scorecard_search_schools, then pass the returned unit IDs to scorecard_get_school, scorecard_get_earnings, scorecard_get_programs, scorecard_compare_schools, or scorecard_value_analysis, which computes debt-to-earnings and ROI metrics in one call. To filter by field of study, resolve the program name to a CIP code with scorecard_lookup_cip first; program-level 1-year earnings come from scorecard_get_programs and scorecard_search_programs, institution-level 6/8/10-year earnings from scorecard_get_earnings. scorecard_lookup_cip and scorecard_list_fields read embedded data and make no API calls, so they are safe to use freely.',
+  sessionMode: 'stateless',
   setup(core) {
     initScorecardService(core.config, core.storage);
   },
