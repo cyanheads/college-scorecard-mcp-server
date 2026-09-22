@@ -104,6 +104,7 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
       code: JsonRpcErrorCode.ServiceUnavailable,
       when: 'The College Scorecard API returned an error.',
       recovery: 'Check SCORECARD_API_KEY validity and retry after a brief delay.',
+      thrownBy: 'service',
     },
   ],
 

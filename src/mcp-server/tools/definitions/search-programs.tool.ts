@@ -91,17 +91,11 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
 
   errors: [
     {
-      reason: 'no_results',
-      code: JsonRpcErrorCode.NotFound,
-      when: 'No programs matched the search filters.',
-      recovery:
-        'Remove min_earnings or max_net_price filters, or try a different CIP code with scorecard_lookup_cip.',
-    },
-    {
       reason: 'api_error',
       code: JsonRpcErrorCode.ServiceUnavailable,
       when: 'The College Scorecard API returned an error.',
       recovery: 'Check SCORECARD_API_KEY validity and retry after a brief delay.',
+      thrownBy: 'service',
     },
   ],
 

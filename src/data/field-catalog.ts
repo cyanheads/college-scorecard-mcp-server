@@ -592,7 +592,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
   {
     path: 'latest.programs.cip_4_digit.credential_level',
     description:
-      'Credential level: 1=certificate, 2=associate, 3=bachelor, 6=post-bac cert, 7=master, 8=doctoral, 17=professional',
+      'Credential level: 1=undergraduate certificate, 2=associate, 3=bachelor, 4=post-baccalaureate certificate, 5=master, 6=doctoral, 7=first professional, 8=graduate/professional certificate, 99=non-credential',
     type: 'integer',
     sortable: false,
     category: 'programs',

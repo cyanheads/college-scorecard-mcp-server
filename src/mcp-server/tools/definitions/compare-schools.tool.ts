@@ -105,6 +105,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       code: JsonRpcErrorCode.ServiceUnavailable,
       when: 'The College Scorecard API returned an error.',
       recovery: 'Check SCORECARD_API_KEY validity and retry after a brief delay.',
+      thrownBy: 'service',
     },
   ],
 

@@ -136,17 +136,11 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
 
   errors: [
     {
-      reason: 'no_results',
-      code: JsonRpcErrorCode.NotFound,
-      when: 'No institutions matched the provided filters.',
-      recovery:
-        'Broaden the search by removing filters or widening size and acceptance rate ranges.',
-    },
-    {
       reason: 'api_error',
       code: JsonRpcErrorCode.ServiceUnavailable,
       when: 'The College Scorecard API returned an error.',
       recovery: 'Check SCORECARD_API_KEY validity and retry after a brief delay.',
+      thrownBy: 'service',
     },
   ],
 

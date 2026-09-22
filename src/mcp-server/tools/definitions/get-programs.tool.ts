@@ -7,19 +7,26 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
+import type { RawProgram } from '@/services/scorecard/types.js';
 
-const credentialLabel = (v: number | null | undefined): string => {
-  if (v == null) return 'Unknown';
-  const map: Record<number, string> = {
-    1: 'Certificate',
-    2: "Associate's",
-    3: "Bachelor's",
-    6: 'Post-baccalaureate certificate',
-    7: "Master's",
-    8: 'Doctoral',
-    17: 'Professional',
-  };
-  return map[v] ?? String(v);
+/** Short labels for the API's field-of-study credential levels (`credential.level`). */
+const CREDENTIAL_LABELS: Record<number, string> = {
+  1: 'Undergraduate certificate',
+  2: "Associate's",
+  3: "Bachelor's",
+  4: 'Post-baccalaureate certificate',
+  5: "Master's",
+  6: 'Doctoral',
+  7: 'First professional',
+  8: 'Graduate/professional certificate',
+  99: 'Non-credential',
+};
+
+/** Labels a program's credential; a level missing from the table uses the record's own title. */
+const credentialLabel = (credential: RawProgram['credential']): string => {
+  const level = credential?.level;
+  if (level == null) return credential?.title ?? 'Unknown';
+  return CREDENTIAL_LABELS[level] ?? credential?.title ?? String(level);
 };
 
 const ProgramSchema = z.object({
@@ -56,7 +63,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       .string()
       .optional()
       .describe(
-        'Filter to a specific 4-digit CIP code (e.g. "11.07" for Computer Science). Returns only this program.',
+        'Filter to one 4-digit CIP code, dotted or undotted (e.g. "11.07" or "1107" for Computer Science). Returns one row per credential level the school offers in that program.',
       ),
     min_earnings: z
       .number()
@@ -67,7 +74,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       .int()
       .optional()
       .describe(
-        'Filter by credential level: 1=certificate, 2=associate, 3=bachelor, 6=post-bac cert, 7=master, 8=doctoral, 17=professional.',
+        'Filter by credential level: 1=undergraduate certificate, 2=associate, 3=bachelor, 4=post-baccalaureate certificate, 5=master, 6=doctoral, 7=first professional, 8=graduate/professional certificate, 99=non-credential.',
       ),
   }),
 
@@ -110,6 +117,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       code: JsonRpcErrorCode.ServiceUnavailable,
       when: 'The College Scorecard API returned an error.',
       recovery: 'Check SCORECARD_API_KEY validity and retry after a brief delay.',
+      thrownBy: 'service',
     },
   ],
 
@@ -138,7 +146,9 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     // Filter programs by client-supplied criteria
     let filtered = rawPrograms;
     if (input.cip_code) {
-      filtered = filtered.filter((p) => p.code === input.cip_code);
+      // Compare undotted: the API returns "1107", callers and scorecard_lookup_cip pass "11.07".
+      const cip = input.cip_code.replaceAll('.', '');
+      filtered = filtered.filter((p) => p.code?.replaceAll('.', '') === cip);
     }
     if (input.credential_level != null) {
       filtered = filtered.filter((p) => p.credential?.level === input.credential_level);
@@ -150,7 +160,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       return {
         code: p.code ?? 'Unknown',
         ...(p.title && { title: p.title }),
-        credential_level: credentialLabel(p.credential?.level),
+        credential_level: credentialLabel(p.credential),
         ...(rawEarnings != null && { earnings_1yr_median: rawEarnings }),
         ...(p.earnings?.highest?.['1_yr']?.overall_count_titleiv != null && {
           earnings_count: p.earnings.highest['1_yr'].overall_count_titleiv as number,

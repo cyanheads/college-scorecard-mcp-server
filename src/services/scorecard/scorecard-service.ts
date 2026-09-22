@@ -120,13 +120,18 @@ export class ScorecardService {
     return url.toString();
   }
 
-  /** Fetch from the API with retry and error classification */
+  /**
+   * Fetch from the API with retry and error classification. Every upstream
+   * failure carries the `api_error` reason the calling tools declare, plus that
+   * contract's recovery hint.
+   */
   private fetchApi(
     params: Record<string, string | number | undefined>,
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
     const url = this.buildUrl(params);
     ctx.log.debug('Fetching Scorecard API', { path: url.replace(/api_key=[^&]+/, 'api_key=***') });
+    const apiError = { reason: 'api_error', ...ctx.recoveryFor('api_error') };
 
     return withRetry(
       async () => {
@@ -144,14 +149,15 @@ export class ScorecardService {
         if (!response.ok) {
           const status = response.status;
           if (status === 429)
-            throw serviceUnavailable(`Scorecard API rate limit exceeded (HTTP 429).`);
+            throw serviceUnavailable(`Scorecard API rate limit exceeded (HTTP 429).`, apiError);
           if (status === 403 || status === 401)
             throw serviceUnavailable(
               `Scorecard API key rejected (HTTP ${status}) — verify SCORECARD_API_KEY.`,
+              apiError,
             );
           if (status >= 500)
-            throw serviceUnavailable(`Scorecard API unavailable (HTTP ${status}).`);
-          throw serviceUnavailable(`Scorecard API returned HTTP ${status}.`);
+            throw serviceUnavailable(`Scorecard API unavailable (HTTP ${status}).`, apiError);
+          throw serviceUnavailable(`Scorecard API returned HTTP ${status}.`, apiError);
         }
         const text = await response.text();
 
@@ -159,6 +165,7 @@ export class ScorecardService {
         if (/^\s*<(!DOCTYPE\s+html|html[\s>])/i.test(text)) {
           throw serviceUnavailable(
             'Scorecard API returned HTML instead of JSON — likely rate-limited or unavailable.',
+            apiError,
           );
         }
 
@@ -167,6 +174,7 @@ export class ScorecardService {
           body = JSON.parse(text);
         } catch {
           throw serviceUnavailable('Scorecard API returned non-JSON response.', {
+            ...apiError,
             body: text.slice(0, 200),
           });
         }
@@ -187,13 +195,15 @@ export class ScorecardService {
           if (code === 'API_KEY_MISSING' || code === 'API_KEY_INVALID') {
             throw serviceUnavailable(
               `Scorecard API key error: ${msg} — verify SCORECARD_API_KEY is valid.`,
+              apiError,
             );
           }
-          throw serviceUnavailable(`Scorecard API error: ${msg}`, { code });
+          throw serviceUnavailable(`Scorecard API error: ${msg}`, { ...apiError, code });
         }
 
         if (!data.results || !data.metadata) {
           throw serviceUnavailable('Scorecard API returned unexpected response shape.', {
+            ...apiError,
             keys: Object.keys(data),
           });
         }
@@ -260,10 +270,14 @@ export class ScorecardService {
     return this.fetchApi(params, ctx);
   }
 
-  /** Fetch program data for a school */
+  /**
+   * Fetch a school's full program list. Program filters are applied by the caller —
+   * an upstream CIP filter drops the school record when no program matches, which
+   * would read as a missing school.
+   */
   getSchoolPrograms(
     id: string | number,
-    cipCode: string | undefined,
+    _cipCode: string | undefined,
     _minEarnings: number | undefined,
     _credentialLevel: number | undefined,
     ctx: Context,
@@ -273,10 +287,6 @@ export class ScorecardService {
       fields: PROGRAMS_DEFAULT_FIELDS,
       per_page: 1,
     };
-
-    if (cipCode) {
-      params['latest.programs.cip_4_digit.code'] = cipCode.replace('.', '');
-    }
 
     return this.fetchApi(params, ctx);
   }
