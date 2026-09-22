@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.1.9](changelog/0.1.x/0.1.9.md) — 2026-09-21
+
+Stateless HTTP serving by default; scorecard_get_programs matches dotted and undotted CIP codes and reports correct credential levels; every upstream failure now carries an api_error reason and recovery hint.
+
 ## [0.1.8](changelog/0.1.x/0.1.8.md) — 2026-08-21
 
 Adopt @cyanheads/mcp-ts-core ^0.12.3 (MCP SDK ^2.0.0 era) with a TypeScript 7 / Bun 1.4 toolchain refresh; fix enrichment truncation fields failing output validation, resources/list discovery, and empty-ID error classification.

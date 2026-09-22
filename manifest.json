@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.3",
   "name": "college-scorecard-mcp-server",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Search, compare, and analyze U.S. college data — costs, earnings, programs, and outcomes — via MCP. STDIO or Streamable HTTP.",
   "author": { "name": "cyanheads" },
   "repository": {
