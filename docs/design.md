@@ -6,15 +6,15 @@
 
 | Name | Description | Key Inputs | Annotations |
 |:-----|:------------|:-----------|:------------|
-| `scorecard_search_schools` | Search and filter institutions by name, location, type, size, and acceptance rate range. Returns a list with core identity and cost metrics. | `query`, `state`, `ownership`, `degree_level`, `size_range`, `acceptance_rate_range`, `zip`, `distance`, `cip_code`, `per_page`, `page` | `readOnlyHint` |
+| `scorecard_search_schools` | Search institutions with optional single-sex filters and API sorting. Returns core identity and cost metrics. | `query`, `state`, `ownership`, `degree_level`, `size_range`, `acceptance_rate_range`, `zip`, `distance`, `cip_code`, `sort`, `men_only`, `women_only`, `per_page`, `page` | `readOnlyHint` |
 | `scorecard_get_school` | Full institutional profile for one or more school IDs — costs, admissions, outcomes, aid, demographics, and completion rates. When multiple IDs are supplied, returns all profiles; for side-by-side comparison on a specific dimension, use `scorecard_compare_schools`. | `id` (string or array), `fields` | `readOnlyHint`, `idempotentHint` |
 | `scorecard_compare_schools` | Normalized side-by-side comparison of 2–5 schools on a named topic. Returns percentile-ranked rows and relative deltas within the result set — structured output an agent cannot reconstruct from raw profiles. | `ids`, `topic` | `readOnlyHint` |
-| `scorecard_get_programs` | All field-of-study programs at one school: 1-year post-graduation earnings (P25/median/P75), debt at graduation, and enrollment figures. This is the primary source for program-level earnings — institution-level 6/8/10-year earnings are separate and available via `scorecard_get_earnings`. | `id`, `cip_code`, `min_earnings`, `credential_level` | `readOnlyHint` |
-| `scorecard_search_programs` | Find programs by CIP code or keyword across all institutions, ranked by median earnings. Accepts school-side filters (state, ownership, max cost) to answer queries like "best CS programs in Washington under $30k." Returns school name, school ID, and unit ID alongside program metrics for follow-up chaining. | `cip_code`, `program_name`, `state`, `ownership`, `max_net_price`, `min_earnings`, `max_debt`, `per_page`, `page` | `readOnlyHint` |
+| `scorecard_get_programs` | Field-of-study programs at one school: median earnings and cohort count 1 year after the highest credential, cumulative Stafford/Grad PLUS debt, and IPEDS award counts for the two pooled debt-cohort years. Institution-level 6/8/10-year earnings are available via `scorecard_get_earnings`. | `id`, `cip_code`, `min_earnings`, `credential_level` | `readOnlyHint` |
+| `scorecard_search_programs` | Find programs by CIP code or keyword across institutions, ranked by earnings within the fetched school page. School filters apply upstream; minimum earnings filters programs locally without changing school totals. Returns school names and IDs alongside program metrics. | `cip_code`, `program_name`, `state`, `ownership`, `max_net_price`, `min_earnings`, `max_debt`, `per_page`, `page` | `readOnlyHint` |
 | `scorecard_get_earnings` | Institution-level post-graduation earnings for one school — median and percentiles at 6, 8, and 10 years after entry, with optional gender breakdown. This reflects outcomes across all graduates, not broken down by program; for program-specific earnings, use `scorecard_get_programs`. | `id`, `years` | `readOnlyHint`, `idempotentHint` |
-| `scorecard_value_analysis` | Workflow tool: parallel-fetches cost, debt, repayment, and earnings data for a school and computes ROI metrics the API doesn't pre-calculate — debt-to-earnings ratio, net price by income bracket, 3-year loan repayment rate, and how these compare to peer institutions. `family_income` narrows the net price to the applicable bracket. Returns a structured summary with all source figures alongside derived metrics. | `id`, `family_income` | `readOnlyHint` |
+| `scorecard_value_analysis` | Combines cost, debt, repayment progress, and earnings for one school, with derived ratios and source figures. `family_income` selects the applicable net price bracket. | `id`, `family_income` | `readOnlyHint` |
 | `scorecard_lookup_cip` | Search for Classification of Instructional Programs (CIP) codes by keyword or partial name. Returns matching CIP codes with standard titles. Required before using CIP-based filters in `scorecard_search_programs` or `scorecard_get_programs` when the caller knows a program by name but not code. | `query` | `readOnlyHint`, `openWorldHint: false` |
-| `scorecard_list_fields` | Search the Scorecard field catalog by keyword. Returns matching field paths, descriptions, data types, and whether the field supports sorting. Use before passing custom field paths to the `fields` parameter on search/get tools. | `query` | `readOnlyHint`, `openWorldHint: false` |
+| `scorecard_list_fields` | Search the Scorecard field catalog by keyword. Returns field paths, descriptions, types, and sort support. Use before passing custom `fields` to `scorecard_get_school`. | `query` | `readOnlyHint`, `openWorldHint: false` |
 
 ### Resources
 
@@ -35,7 +35,7 @@
 
 College Scorecard MCP Server wraps the U.S. Department of Education's College Scorecard API (`api.data.gov/ed/collegescorecard/v1`), which covers ~6,500 Title IV institutions and ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings. The server surfaces the most decision-relevant slice of that data — primarily post-graduation earnings by program, net price by income bracket, debt loads, and completion rates — via a tool surface designed for the questions people actually ask about colleges: "Is this school worth it?", "Which CS programs pay off?", "How do these schools compare?", "Find schools matching my criteria."
 
-The killer feature is **program-level post-graduation earnings**: actual median earnings 1 year after graduation for ~6,500 school × CIP code combinations — not self-reported surveys. This is data the College Scorecard is uniquely positioned to provide.
+Program-level outcomes report median earnings of graduates working and not enrolled 1 year after their highest credential, by school, CIP code, and credential level. Program search ranks only the fetched school page, so callers paginate to inspect further institutions.
 
 Target users: agents helping with college research, financial planning, career exploration, and higher education policy analysis.
 
@@ -50,7 +50,7 @@ Target users: agents helping with college research, financial planning, career e
 - Field-of-study (program) data trails institution data by ~2 years due to earnings cohort lag
 - Earnings data uses the `latest.*` shorthand for most recent cohort; individual year fields available for trend queries
 - Some fields are sparsely populated (null is common — especially earnings at selective schools with small cohorts, due to FERPA suppression; surfaced as structured `suppressed: true` flag, not bare null)
-- Only fields marked as INDEX in the data dictionary support sorting; the tool surface handles this transparently via post-fetch sorting where needed
+- School sorting forwards indexed API fields; program search orders the fetched page locally by earnings
 - Batch ID lookup supported via comma-separated `id` param (up to 100 per page)
 - Geographic filtering available via `zip` + `distance` (miles/km), U.S. zip codes only
 - Programs returned as nested array under school record; filtering by CIP code returns only matching programs unless `all_programs_nested=true` is passed
@@ -119,21 +119,20 @@ Answers "is this school worth it?" by combining data that otherwise requires two
 |:--|:-----|:--------|
 | 1 | `GET /schools?id={id}&fields=...cost,aid,completion...` | Fetch tuition, net price by income bracket, median debt, 3-yr repayment rate, graduation rate |
 | 2 | `GET /schools?id={id}&fields=...earnings...` | Fetch median + P25/P75 earnings at 6, 8, 10 years |
-| — | Synthesize | Compute debt-to-earnings ratio (debt / 10-yr earnings), cost-to-first-year-earnings ratio; select applicable net price bracket if `family_income` provided; flag data suppression |
+| — | Synthesize | Compute debt-to-earnings and net-price ratios using 6-year earnings; select applicable net price bracket if `family_income` provided; flag missing data |
 
-Calls 1 and 2 run in parallel via `Promise.all`. Both calls also fetch peer school identifiers (same `school.carnegie_basic` category, same `school.ownership`) to provide median comparison values.
+Calls 1 and 2 run in parallel via `Promise.all`, each restricted to the requested school ID.
 
 **Output fields:**
 - `school_name`, `school_id` — for chaining
 - `list_price` — full tuition + fees
-- `net_price` — average net price overall and by applicable income bracket
+- `net_price_overall`, `net_price_for_income`, `applicable_income_bracket` — average net price and the selected family-income bracket when provided
 - `median_debt` — median debt at graduation
-- `graduation_rate` — 4-year completion rate at 150% time
-- `loan_repayment_rate_3yr` — 3-year repayment rate (share not in default or delinquency)
+- `graduation_rate` — completion rate at 150% normal time
+- `repayment_progress_3yr` — share of borrowers paying down principal 3 years after entering repayment
 - `earnings_6yr_median`, `earnings_10yr_median` — institution-level, across all programs
-- `debt_to_earnings_ratio` — `median_debt / earnings_6yr_median` (standard gainful-employment metric)
-- `net_price_to_first_year_earnings` — `net_price / (earnings_6yr_median / 6)` 
-- `peer_median_debt_to_earnings` — same ratio for similar schools
+- `debt_to_earnings_ratio` — `median_debt / earnings_6yr_median`
+- `net_price_to_annual_earnings` — income-specific net price when available, otherwise overall net price, divided by median annual earnings measured 6 years after entry
 - `data_notes` — flags any suppressed or null fields and what they mean
 
 ### `scorecard_compare_schools`
@@ -165,7 +164,7 @@ Tools default to `latest.*` (most recent available cohort per field) for all cur
 
 ### Field pre-selection strategy
 
-Each tool pre-selects a curated set of ~10–20 fields appropriate to its purpose, including earnings percentiles (P25/P75, not just median) where relevant. The optional `fields` parameter on search and get tools allows callers to override this. `scorecard_list_fields` makes this escape hatch usable by exposing the field catalog — without it, `fields` would only work for callers with the API docs open.
+Each tool selects fields for its purpose, including institution earnings percentiles where available. `scorecard_get_school` exposes a `fields` override; the search tools use their fixed field sets. `scorecard_list_fields` supplies the field paths and descriptions for that override.
 
 ### `scorecard_search_programs` vs. `scorecard_get_programs`
 
@@ -177,22 +176,28 @@ The API returns null for earnings at schools with small program cohorts (FERPA p
 
 ### Sortable vs. non-sortable fields
 
-Not all fields support API-side `sort`. `scorecard_search_programs` sorts by earnings — but earnings fields may not be indexed. The service layer applies post-fetch sorting in those cases, documented so the implementation doesn't try and fail with an API error.
+School search forwards `sort` to the API without a local fallback. The catalog follows the dictionary's INDEX column; the API's derived `latest.cost.avg_net_price.overall` field is also verified to support ascending and descending sorting. Six-year earnings is not sortable. Program search sorts earnings within the fetched school page and applies `min_earnings` locally because the nested earnings field is not indexed. Totals and continuation remain school-level, before local filtering; continuation is computed from page metadata, not flattened program counts.
+
+### Program populations and single-sex flags
+
+Program debt uses `debt.staff_grad_plus.all.all_inst.median` to retain same-level borrowing at previously attended institutions. The matching earnings count is `earnings.highest.1_yr.working_not_enrolled.overall_count`. IPEDS awards come from `counts.ipeds_awards1` and `counts.ipeds_awards2`, separately named for the two years of the pooled debt cohort: summing them would not produce enrollment or a unique-student cohort. Tools omit unknown metrics; the programs resource returns null, and all preserve zero counts.
+
+School `men_only` / `women_only` filters distinguish true (1), false (0), and omission (including unknown). Profiles preserve both known values as booleans and omit unknown flags.
 
 ### CIP and field catalog as embedded static data
 
-Both `scorecard_lookup_cip` and `scorecard_list_fields` serve from bundled JSON derived from public government sources. No API call required, no rate limit impact, no latency. The CIP taxonomy (~2,400 codes) and the field catalog (~2,800 entries) are stable between major Scorecard releases. Embedding them also means the server works offline for these lookups.
+Both `scorecard_lookup_cip` and `scorecard_list_fields` use embedded TypeScript data derived from public government sources: 202 curated CIP codes and 80 field entries. These lookups work offline and make no API calls; they are subsets of the full upstream taxonomy and dictionary.
 
 ---
 
 ## Known Limitations
 
 - Earnings data is unavailable for many school/program combinations with small cohorts (FERPA suppression) — this is structural and affects the most selective schools most severely
-- Program-level earnings are 1-year-after-graduation median only; 10-year figures are institution-level only
+- Program earnings are medians for graduates working and not enrolled 1 year after their highest credential; 10-year figures are institution-level only
 - Field-of-study data trails institution data by ~2 academic years
 - 1,000 requests/hour rate limit — `scorecard_search_programs` across all states can exhaust budget; callers should scope searches
 - Geographic filtering requires U.S. zip codes
-- The `sort` parameter only works on indexed fields; the service layer handles this via post-fetch ordering where needed
+- The school `sort` parameter only works on indexed fields; unsupported expressions return an API error
 - No historical cost or admissions trends — the API has annual snapshots but trend queries would require multiple API calls; not in scope for v1
 
 ---
@@ -246,15 +251,16 @@ Programs are returned as an array under `{year}.programs.cip_4_digit`. Each arra
 
 ```json
 {
-  "code": "11.0701",
+  "code": "1107",
   "title": "Computer Science.",
-  "earnings": { "highest": { "1_yr": { "overall_median_earnings": 85000 } } },
-  "debt": { "median_debt": 22000 },
-  "counts": { "ipeds_enrollment": 450 }
+  "credential": { "level": 3, "title": "Bachelor's Degree" },
+  "earnings": { "highest": { "1_yr": { "overall_median_earnings": 85000, "working_not_enrolled": { "overall_count": 200 } } } },
+  "debt": { "staff_grad_plus": { "all": { "all_inst": { "median": 22000 } } } },
+  "counts": { "ipeds_awards1": 450, "ipeds_awards2": 460 }
 }
 ```
 
-When filtering with `latest.programs.cip_4_digit.code=11.0701`, only matching programs are returned. Pass `all_programs_nested=true` to get all programs alongside a filtered subset.
+When filtering with `latest.programs.cip_4_digit.code=1107`, only matching programs are returned. The tools accept dotted `11.07` and undotted `1107`. Per-school program fetches use only the school ID upstream and filter locally, preserving the distinction between a missing school and a school with no matching program.
 
 ### CIP Code Structure
 
