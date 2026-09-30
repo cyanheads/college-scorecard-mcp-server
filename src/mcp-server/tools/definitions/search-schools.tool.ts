@@ -77,6 +77,24 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       .describe(
         'Filter to schools offering this CIP 4-digit program code (e.g. "11.07"). Use scorecard_lookup_cip to find codes.',
       ),
+    sort: z
+      .string()
+      .optional()
+      .describe(
+        'Upstream sort expression on an indexed field, e.g. "latest.cost.avg_net_price.overall:asc" or ":desc" for reverse order. Use scorecard_list_fields for sort support; omission keeps API ordering.',
+      ),
+    men_only: z
+      .boolean()
+      .optional()
+      .describe(
+        'True selects men-only institutions; false selects institutions explicitly marked not men-only. Omit to include unknown values.',
+      ),
+    women_only: z
+      .boolean()
+      .optional()
+      .describe(
+        'True selects women-only institutions; false selects institutions explicitly marked not women-only. Omit to include unknown values.',
+      ),
     per_page: z.number().int().min(1).max(100).default(20).describe('Results per page (max 100).'),
     page: z.number().int().min(0).default(0).describe('Zero-indexed page number for pagination.'),
   }),
@@ -123,7 +141,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
     totalCount: z.number().describe('Total institutions matching the filters, before pagination.'),
     truncated: z
       .boolean()
-      .describe('True when the page was filled to per_page and more results exist on later pages.'),
+      .describe('True when school pagination metadata indicates a later page exists.'),
     shown: z.number().describe('Institutions returned on this page.'),
     cap: z.number().describe('The per_page limit that was applied.'),
     notice: z
@@ -169,6 +187,9 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
         ...(input.zip && { zip: input.zip }),
         ...(input.distance && { distance: input.distance }),
         ...(input.cip_code && { cipCode: input.cip_code }),
+        ...(input.sort && { sort: input.sort }),
+        ...(input.men_only != null && { menOnly: input.men_only }),
+        ...(input.women_only != null && { womenOnly: input.women_only }),
         perPage: input.per_page,
         page: input.page,
       },
@@ -203,18 +224,18 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       }),
     }));
 
-    ctx.enrich.total(response.metadata.total);
-    ctx.enrich({ truncated: false, shown: schools.length, cap: input.per_page });
+    const { total, page, per_page } = response.metadata;
+    const truncated = (page + 1) * per_page < total;
+    ctx.enrich.total(total);
+    ctx.enrich({ truncated, shown: schools.length, cap: per_page });
     if (schools.length === 0) {
       ctx.enrich.notice(
         `No schools matched the applied filters. Try removing state, size, or acceptance rate filters.`,
       );
-    } else if (schools.length >= input.per_page) {
-      ctx.enrich.truncated({
-        shown: schools.length,
-        cap: input.per_page,
-        guidance: `Page ${input.page} filled to per_page (${input.per_page}). Request page ${input.page + 1} or raise per_page (max 100) for more.`,
-      });
+    } else if (truncated) {
+      ctx.enrich.notice(
+        `More schools match the filters. Request page ${page + 1} or raise per_page (max 100) for more.`,
+      );
     }
 
     ctx.log.info('School search complete', {

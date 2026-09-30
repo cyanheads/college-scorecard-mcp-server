@@ -186,7 +186,8 @@ describe('getProgramsTool', () => {
           credential_level: "Bachelor's",
           earnings_1yr_median: 72000,
           median_debt: 18000,
-          enrollment: 400,
+          ipeds_awards_year1: 400,
+          ipeds_awards_year2: 410,
           suppressed: false,
         },
         {
@@ -297,8 +298,8 @@ describe('getProgramsTool', () => {
 
     it("documents the API's level codes in the credential_level filter and the field catalog", () => {
       const filterDoc = getProgramsTool.input.shape.credential_level.description ?? '';
-      const [catalogEntry] = searchFieldCatalog('latest.programs.cip_4_digit.credential_level', 1);
-      expect(catalogEntry?.path).toBe('latest.programs.cip_4_digit.credential_level');
+      const [catalogEntry] = searchFieldCatalog('latest.programs.cip_4_digit.credential.level', 1);
+      expect(catalogEntry?.path).toBe('latest.programs.cip_4_digit.credential.level');
       for (const doc of [filterDoc, catalogEntry!.description]) {
         for (const code of DOCUMENTED_CODES) expect(doc).toMatch(code);
         expect(doc).not.toMatch(/\b17=/);

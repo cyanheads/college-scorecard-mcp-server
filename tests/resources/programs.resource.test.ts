@@ -16,10 +16,10 @@ vi.mock('@/services/scorecard/scorecard-service.js', () => ({
 const makeProgram = (overrides: Record<string, unknown> = {}) => ({
   code: '11.07',
   title: 'Computer Science',
-  credential_level: 3,
+  credential: { level: 3, title: "Bachelor's Degree" },
   earnings: { highest: { '1_yr': { overall_median_earnings: 72000 } } },
-  debt: { median_debt: 18000 },
-  counts: { ipeds_enrollment: 400 },
+  debt: { staff_grad_plus: { all: { all_inst: { median: 18000 } } } },
+  counts: { ipeds_awards1: 400, ipeds_awards2: 410 },
   ...overrides,
 });
 

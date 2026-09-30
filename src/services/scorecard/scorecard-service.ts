@@ -153,7 +153,7 @@ export class ScorecardService {
           if (status === 403 || status === 401)
             throw serviceUnavailable(
               `Scorecard API key rejected (HTTP ${status}) — verify SCORECARD_API_KEY.`,
-              apiError,
+              { ...apiError, retryable: false },
             );
           if (status >= 500)
             throw serviceUnavailable(`Scorecard API unavailable (HTTP ${status}).`, apiError);
@@ -195,7 +195,7 @@ export class ScorecardService {
           if (code === 'API_KEY_MISSING' || code === 'API_KEY_INVALID') {
             throw serviceUnavailable(
               `Scorecard API key error: ${msg} — verify SCORECARD_API_KEY is valid.`,
-              apiError,
+              { ...apiError, retryable: false },
             );
           }
           throw serviceUnavailable(`Scorecard API error: ${msg}`, { ...apiError, code });
@@ -244,6 +244,8 @@ export class ScorecardService {
     if (options.cipCode)
       params['latest.programs.cip_4_digit.code'] = options.cipCode.replace('.', '');
     if (options.sort) params.sort = options.sort;
+    if (options.menOnly != null) params['school.men_only'] = options.menOnly ? 1 : 0;
+    if (options.womenOnly != null) params['school.women_only'] = options.womenOnly ? 1 : 0;
     if (options.extraParams) {
       for (const [k, v] of Object.entries(options.extraParams)) {
         params[k] = v;
@@ -324,7 +326,6 @@ export class ScorecardService {
       state?: string;
       ownership?: number;
       maxNetPrice?: number;
-      minEarnings?: number;
       maxDebt?: number;
       perPage?: number;
       page?: number;
@@ -350,12 +351,9 @@ export class ScorecardService {
     if (options.ownership != null) params['school.ownership'] = options.ownership;
     if (options.maxNetPrice != null)
       params['latest.cost.avg_net_price.overall__range'] = `..${options.maxNetPrice}`;
-    if (options.minEarnings != null) {
-      params['latest.programs.cip_4_digit.earnings.highest.1_yr.overall_median_earnings__range'] =
-        `${options.minEarnings}..`;
-    }
     if (options.maxDebt != null) {
-      params['latest.programs.cip_4_digit.debt.median_debt__range'] = `..${options.maxDebt}`;
+      params['latest.programs.cip_4_digit.debt.staff_grad_plus.all.all_inst.median__range'] =
+        `..${options.maxDebt}`;
     }
 
     return this.fetchApi(params, ctx);

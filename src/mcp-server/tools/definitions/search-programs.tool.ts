@@ -17,16 +17,37 @@ const ProgramResultSchema = z.object({
   net_price_overall: z.number().optional().describe('Average net price at this school.'),
   program_code: z.string().describe('4-digit CIP program code.'),
   program_title: z.string().optional().describe('Program title.'),
-  earnings_1yr_median: z.number().optional().describe('Median earnings 1 year after graduation.'),
-  median_debt: z.number().optional().describe('Median debt at graduation for this program.'),
-  enrollment: z.number().optional().describe('IPEDS enrollment for this program.'),
+  earnings_1yr_median: z
+    .number()
+    .optional()
+    .describe(
+      'Median earnings of graduates working and not enrolled 1 year after their highest credential.',
+    ),
+  median_debt: z
+    .number()
+    .optional()
+    .describe(
+      'Median cumulative Stafford/Grad PLUS borrowing among completers across attended institutions at the same academic level.',
+    ),
+  ipeds_awards_year1: z
+    .number()
+    .optional()
+    .describe(
+      'IPEDS awards in year 1 of the pooled debt cohort; awards, not enrollment or unique students.',
+    ),
+  ipeds_awards_year2: z
+    .number()
+    .optional()
+    .describe(
+      'IPEDS awards in year 2 of the pooled debt cohort; awards, not enrollment or unique students.',
+    ),
   suppressed: z.boolean().describe('True when earnings are suppressed due to small cohort.'),
 });
 
 export const searchProgramsTool = tool('scorecard_search_programs', {
   title: 'Search Programs',
   description:
-    'Find programs by CIP code across all institutions, ranked by median earnings. Accepts school-side filters (state, ownership, max cost) to answer queries like "best CS programs in Washington under $30k." Use scorecard_lookup_cip to convert program names to CIP codes before using this tool. Returns school name, school ID, and unit ID alongside program metrics for follow-up chaining to scorecard_get_school or scorecard_get_programs.',
+    'Find programs by CIP code across institutions, ranked by median earnings within the fetched school page. Accepts school-side filters (state, ownership, max cost). Minimum earnings is applied locally; totals and pagination count schools before local program filtering. Use scorecard_lookup_cip to convert program names to CIP codes. Returns school names and IDs alongside program earnings, cumulative Stafford/Grad PLUS debt, and IPEDS awards for follow-up calls to scorecard_get_school or scorecard_get_programs.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
@@ -40,7 +61,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       .string()
       .optional()
       .describe(
-        'Program name keyword for approximate matching. Converted to CIP family filter; for precise matching use cip_code.',
+        'Case-insensitive title substring matched within the fetched school page. Ignored when cip_code is provided; use cip_code for upstream program matching.',
       ),
     state: z
       .string()
@@ -55,14 +76,34 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       .optional()
       .describe('Restrict to school type: 1=public, 2=private nonprofit, 3=for-profit.'),
     max_net_price: z.number().optional().describe('Maximum average net price at the school.'),
-    min_earnings: z.number().optional().describe('Minimum 1-year median earnings for the program.'),
-    max_debt: z.number().optional().describe('Maximum median debt at graduation for the program.'),
-    per_page: z.number().int().min(1).max(100).default(20).describe('Results per page (max 100).'),
+    min_earnings: z
+      .number()
+      .optional()
+      .describe(
+        'Minimum 1-year median earnings, inclusive. Filters this school page locally and excludes unavailable earnings; school totals are unchanged.',
+      ),
+    max_debt: z
+      .number()
+      .optional()
+      .describe(
+        'Maximum median cumulative Stafford/Grad PLUS debt across institutions at the same academic level, inclusive; excludes unavailable debt.',
+      ),
+    per_page: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .default(20)
+      .describe('Schools per page (max 100); program rows may exceed this count.'),
     page: z.number().int().min(0).default(0).describe('Zero-indexed page number.'),
   }),
 
   output: z.object({
-    total: z.number().describe('Total schools returned (pagination at school level).'),
+    total: z
+      .number()
+      .describe(
+        'Total schools matching upstream filters, before pagination and local program filtering.',
+      ),
     page: z.number().describe('Current page (zero-indexed).'),
     per_page: z.number().describe('Results per page used.'),
     programs: z
@@ -77,10 +118,12 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
   enrichment: {
     totalCount: z
       .number()
-      .describe('Total schools matching the filters, before pagination (school-level total).'),
+      .describe(
+        'Total schools matching upstream filters, before pagination and local program filtering.',
+      ),
     truncated: z
       .boolean()
-      .describe('True when the school page was filled to per_page and more schools exist.'),
+      .describe('True when school pagination metadata indicates a later page exists.'),
     shown: z.number().describe('Schools returned on this page.'),
     cap: z.number().describe('The per_page limit that was applied.'),
     notice: z
@@ -113,7 +156,6 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
         ...(input.state && { state: input.state }),
         ...(input.ownership != null && { ownership: input.ownership }),
         ...(input.max_net_price != null && { maxNetPrice: input.max_net_price }),
-        ...(input.min_earnings != null && { minEarnings: input.min_earnings }),
         ...(input.max_debt != null && { maxDebt: input.max_debt }),
         perPage: input.per_page,
         page: input.page,
@@ -136,22 +178,14 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
         }
 
         const rawEarnings = p.earnings?.highest?.['1_yr']?.overall_median_earnings;
+        const medianDebt = p.debt?.staff_grad_plus?.all?.all_inst?.median;
         const suppressed = rawEarnings == null;
 
         // Post-fetch earnings filter
-        if (
-          input.min_earnings != null &&
-          !suppressed &&
-          (rawEarnings as number) < input.min_earnings
-        )
+        if (input.min_earnings != null && (rawEarnings == null || rawEarnings < input.min_earnings))
           continue;
         // Post-fetch debt filter
-        if (
-          input.max_debt != null &&
-          p.debt?.median_debt != null &&
-          p.debt.median_debt > input.max_debt
-        )
-          continue;
+        if (input.max_debt != null && (medianDebt == null || medianDebt > input.max_debt)) continue;
 
         allPrograms.push({
           school_id: record.id ?? 0,
@@ -164,8 +198,9 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
           program_code: p.code ?? 'Unknown',
           ...(p.title && { program_title: p.title }),
           ...(rawEarnings != null && { earnings_1yr_median: rawEarnings }),
-          ...(p.debt?.median_debt != null && { median_debt: p.debt.median_debt }),
-          ...(p.counts?.ipeds_enrollment != null && { enrollment: p.counts.ipeds_enrollment }),
+          ...(medianDebt != null && { median_debt: medianDebt }),
+          ...(p.counts?.ipeds_awards1 != null && { ipeds_awards_year1: p.counts.ipeds_awards1 }),
+          ...(p.counts?.ipeds_awards2 != null && { ipeds_awards_year2: p.counts.ipeds_awards2 }),
           suppressed,
         });
       }
@@ -180,24 +215,26 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
 
     const suppressed_count = allPrograms.filter((p) => p.suppressed).length;
 
-    ctx.enrich.total(response.metadata.total);
-    ctx.enrich({ truncated: false, shown: response.results.length, cap: input.per_page });
+    const { total, page, per_page } = response.metadata;
+    const truncated = (page + 1) * per_page < total;
+    ctx.enrich.total(total);
+    ctx.enrich({ truncated, shown: response.results.length, cap: per_page });
+    const notices: string[] = [];
     if (allPrograms.length === 0) {
-      ctx.enrich.notice(
-        `No programs matched the applied filters. Try removing min_earnings or max_net_price constraints, or use scorecard_lookup_cip to find the correct CIP code.`,
+      notices.push(
+        'No programs matched the applied filters on this school page. Try removing min_earnings, max_debt, or max_net_price constraints, or use scorecard_lookup_cip to find the correct CIP code.',
       );
     } else if (suppressed_count === allPrograms.length) {
-      ctx.enrich.notice(
+      notices.push(
         `All ${allPrograms.length} programs have suppressed earnings data. Try a broader CIP code or different state.`,
       );
     }
-    if (response.results.length >= input.per_page) {
-      ctx.enrich.truncated({
-        shown: response.results.length,
-        cap: input.per_page,
-        guidance: `School page ${input.page} filled to per_page (${input.per_page}). Request page ${input.page + 1} or raise per_page (max 100) for more.`,
-      });
+    if (truncated) {
+      notices.push(
+        `More schools match the upstream filters. Request page ${page + 1} or raise per_page (max 100) for more.`,
+      );
     }
+    if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
 
     return {
       total: response.metadata.total,
@@ -225,8 +262,14 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       lines.push(
         `1-Year Earnings (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : p.suppressed ? 'Suppressed (small cohort)' : 'Not available'}`,
       );
-      if (p.median_debt != null) lines.push(`Median Debt: $${p.median_debt.toLocaleString()}`);
-      if (p.enrollment != null) lines.push(`Enrollment: ${p.enrollment.toLocaleString()}`);
+      if (p.median_debt != null)
+        lines.push(
+          `Median Cumulative Stafford/Grad PLUS Debt (all institutions, same academic level): $${p.median_debt.toLocaleString()}`,
+        );
+      if (p.ipeds_awards_year1 != null)
+        lines.push(`IPEDS Awards (debt cohort year 1): ${p.ipeds_awards_year1.toLocaleString()}`);
+      if (p.ipeds_awards_year2 != null)
+        lines.push(`IPEDS Awards (debt cohort year 2): ${p.ipeds_awards_year2.toLocaleString()}`);
     }
     return [{ type: 'text', text: lines.join('\n') }];
   },

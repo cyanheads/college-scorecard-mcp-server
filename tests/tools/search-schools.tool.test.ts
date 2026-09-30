@@ -120,6 +120,7 @@ describe('searchSchoolsTool', () => {
   it('enriches total and truncation when a page fills to per_page', async () => {
     const response = makeResponse(Array.from({ length: 3 }, () => ({})));
     response.metadata.total = 42;
+    response.metadata.per_page = 3;
     mockSearchSchools.mockResolvedValue(response);
     const ctx = createMockContext({ errors: searchSchoolsTool.errors });
     const input = searchSchoolsTool.input.parse({ query: 'University', per_page: 3 });
@@ -158,18 +159,22 @@ describe('searchSchoolsTool', () => {
       expect(text).toContain('**cap:** 20');
     });
 
-    it('marks truncation when the page fills exactly to per_page', async () => {
-      mockSearchSchools.mockResolvedValue(makeResponse(Array.from({ length: 3 }, () => ({}))));
+    it('marks truncation when more pages remain', async () => {
+      const response = makeResponse(Array.from({ length: 3 }, () => ({})));
+      response.metadata = { total: 5, page: 0, per_page: 3 };
+      mockSearchSchools.mockResolvedValue(response);
       const result = await runToolContract(searchSchoolsTool, { query: 'University', per_page: 3 });
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toMatchObject({ truncated: true, shown: 3, cap: 3 });
     });
 
-    it('marks truncation when results exceed per_page', async () => {
-      mockSearchSchools.mockResolvedValue(makeResponse(Array.from({ length: 5 }, () => ({}))));
+    it('does not mark a full final page as truncated', async () => {
+      const response = makeResponse(Array.from({ length: 3 }, () => ({})));
+      response.metadata = { total: 3, page: 0, per_page: 3 };
+      mockSearchSchools.mockResolvedValue(response);
       const result = await runToolContract(searchSchoolsTool, { query: 'University', per_page: 3 });
       expect(result.isError).toBeFalsy();
-      expect(result.structuredContent).toMatchObject({ truncated: true, shown: 5, cap: 3 });
+      expect(result.structuredContent).toMatchObject({ truncated: false, shown: 3, cap: 3 });
     });
 
     it('emits truncation fields on an empty result with the recovery notice', async () => {

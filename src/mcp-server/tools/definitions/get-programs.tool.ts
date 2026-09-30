@@ -1,6 +1,6 @@
 /**
  * @fileoverview Program outcomes tool. Returns all field-of-study programs at one school
- * with earnings, debt, and enrollment figures.
+ * with earnings, debt, and IPEDS award counts.
  * @module mcp-server/tools/definitions/get-programs.tool
  */
 
@@ -33,10 +33,36 @@ const ProgramSchema = z.object({
   code: z.string().describe('4-digit CIP program code.'),
   title: z.string().optional().describe('Program title.'),
   credential_level: z.string().describe('Degree/credential level.'),
-  earnings_1yr_median: z.number().optional().describe('Median earnings 1 year after graduation.'),
-  earnings_count: z.number().optional().describe('Number of Title IV students in earnings cohort.'),
-  median_debt: z.number().optional().describe('Median debt at graduation.'),
-  enrollment: z.number().optional().describe('IPEDS enrollment count.'),
+  earnings_1yr_median: z
+    .number()
+    .optional()
+    .describe(
+      'Median earnings of graduates working and not enrolled 1 year after their highest credential.',
+    ),
+  earnings_count: z
+    .number()
+    .optional()
+    .describe(
+      'Graduates working and not enrolled 1 year after their highest credential, matching the earnings median population.',
+    ),
+  median_debt: z
+    .number()
+    .optional()
+    .describe(
+      'Median cumulative Stafford/Grad PLUS borrowing among completers across attended institutions at the same academic level.',
+    ),
+  ipeds_awards_year1: z
+    .number()
+    .optional()
+    .describe(
+      'IPEDS awards in year 1 of the pooled debt cohort; awards, not enrollment or unique students.',
+    ),
+  ipeds_awards_year2: z
+    .number()
+    .optional()
+    .describe(
+      'IPEDS awards in year 2 of the pooled debt cohort; awards, not enrollment or unique students.',
+    ),
   suppressed: z
     .boolean()
     .describe('True when earnings data is suppressed due to small cohort (FERPA).'),
@@ -49,7 +75,7 @@ const ProgramSchema = z.object({
 export const getProgramsTool = tool('scorecard_get_programs', {
   title: 'Get School Programs',
   description:
-    'All field-of-study programs at one school with 1-year post-graduation earnings (P25/median/P75), debt at graduation, and enrollment figures. This is the primary source for program-level earnings — institution-level 6/8/10-year earnings are available via scorecard_get_earnings. Earnings may be suppressed (null) for programs with small cohorts due to FERPA privacy protection; suppressed=true flags this explicitly. Use scorecard_lookup_cip to find CIP codes by name.',
+    'All field-of-study programs at one school with median earnings 1 year after the highest credential, cumulative Stafford/Grad PLUS debt, and IPEDS award counts for each year of the pooled debt cohort. This is the primary source for program-level earnings — institution-level 6/8/10-year earnings are available via scorecard_get_earnings. Earnings may be suppressed (null) for programs with small cohorts due to FERPA privacy protection; suppressed=true flags this explicitly. Use scorecard_lookup_cip to find CIP codes by name.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   input: z.object({
@@ -156,17 +182,18 @@ export const getProgramsTool = tool('scorecard_get_programs', {
 
     const programs = filtered.map((p): z.infer<typeof ProgramSchema> => {
       const rawEarnings = p.earnings?.highest?.['1_yr']?.overall_median_earnings;
+      const earningsCount = p.earnings?.highest?.['1_yr']?.working_not_enrolled?.overall_count;
+      const medianDebt = p.debt?.staff_grad_plus?.all?.all_inst?.median;
       const suppressed = rawEarnings == null;
       return {
         code: p.code ?? 'Unknown',
         ...(p.title && { title: p.title }),
         credential_level: credentialLabel(p.credential),
         ...(rawEarnings != null && { earnings_1yr_median: rawEarnings }),
-        ...(p.earnings?.highest?.['1_yr']?.overall_count_titleiv != null && {
-          earnings_count: p.earnings.highest['1_yr'].overall_count_titleiv as number,
-        }),
-        ...(p.debt?.median_debt != null && { median_debt: p.debt.median_debt }),
-        ...(p.counts?.ipeds_enrollment != null && { enrollment: p.counts.ipeds_enrollment }),
+        ...(earningsCount != null && { earnings_count: earningsCount }),
+        ...(medianDebt != null && { median_debt: medianDebt }),
+        ...(p.counts?.ipeds_awards1 != null && { ipeds_awards_year1: p.counts.ipeds_awards1 }),
+        ...(p.counts?.ipeds_awards2 != null && { ipeds_awards_year2: p.counts.ipeds_awards2 }),
         suppressed,
         ...(suppressed && {
           suppression_note:
@@ -230,9 +257,18 @@ export const getProgramsTool = tool('scorecard_get_programs', {
         `1-Year Earnings (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : p.suppressed ? 'Suppressed (small cohort, FERPA)' : 'Not available'}`,
       );
       if (p.suppression_note != null) lines.push(`Suppression note: ${p.suppression_note}`);
-      if (p.median_debt != null) lines.push(`Median Debt: $${p.median_debt.toLocaleString()}`);
-      if (p.enrollment != null) lines.push(`Enrollment: ${p.enrollment.toLocaleString()}`);
-      if (p.earnings_count != null) lines.push(`Earnings Cohort: ${p.earnings_count} students`);
+      if (p.median_debt != null)
+        lines.push(
+          `Median Cumulative Stafford/Grad PLUS Debt (all institutions, same academic level): $${p.median_debt.toLocaleString()}`,
+        );
+      if (p.ipeds_awards_year1 != null)
+        lines.push(`IPEDS Awards (debt cohort year 1): ${p.ipeds_awards_year1.toLocaleString()}`);
+      if (p.ipeds_awards_year2 != null)
+        lines.push(`IPEDS Awards (debt cohort year 2): ${p.ipeds_awards_year2.toLocaleString()}`);
+      if (p.earnings_count != null)
+        lines.push(
+          `Earnings Cohort (working, not enrolled; 1 year after highest credential): ${p.earnings_count} graduates`,
+        );
     }
     return [{ type: 'text', text: lines.join('\n') }];
   },

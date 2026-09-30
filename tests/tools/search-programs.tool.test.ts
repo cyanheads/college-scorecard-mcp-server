@@ -22,10 +22,10 @@ const makeProgramRecord = (overrides: Record<string, unknown> = {}) => ({
     {
       code: '11.07',
       title: 'Computer Science',
-      credential_level: 3,
+      credential: { level: 3, title: "Bachelor's Degree" },
       earnings: { highest: { '1_yr': { overall_median_earnings: 72000 } } },
-      debt: { median_debt: 18000 },
-      counts: { ipeds_enrollment: 400 },
+      debt: { staff_grad_plus: { all: { all_inst: { median: 18000 } } } },
+      counts: { ipeds_awards1: 400, ipeds_awards2: 410 },
     },
   ],
   ...overrides,
@@ -61,7 +61,7 @@ describe('searchProgramsTool', () => {
             {
               code: '51.38',
               title: 'Nursing',
-              credential_level: 3,
+              credential: { level: 3, title: "Bachelor's Degree" },
               earnings: null,
             },
           ],
@@ -101,22 +101,22 @@ describe('searchProgramsTool', () => {
       expect(text).toContain('**cap:** 20');
     });
 
-    it('marks truncation when the school page fills exactly to per_page', async () => {
-      mockSearchPrograms.mockResolvedValue(
-        makeResponse(Array.from({ length: 3 }, () => makeProgramRecord())),
-      );
+    it('marks truncation when more school pages remain', async () => {
+      const response = makeResponse(Array.from({ length: 3 }, () => makeProgramRecord()));
+      response.metadata = { total: 5, page: 0, per_page: 3 };
+      mockSearchPrograms.mockResolvedValue(response);
       const result = await runToolContract(searchProgramsTool, { cip_code: '11.07', per_page: 3 });
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toMatchObject({ truncated: true, shown: 3, cap: 3 });
     });
 
-    it('marks truncation when results exceed per_page', async () => {
-      mockSearchPrograms.mockResolvedValue(
-        makeResponse(Array.from({ length: 5 }, () => makeProgramRecord())),
-      );
+    it('does not mark a full final school page as truncated', async () => {
+      const response = makeResponse(Array.from({ length: 3 }, () => makeProgramRecord()));
+      response.metadata = { total: 3, page: 0, per_page: 3 };
+      mockSearchPrograms.mockResolvedValue(response);
       const result = await runToolContract(searchProgramsTool, { cip_code: '11.07', per_page: 3 });
       expect(result.isError).toBeFalsy();
-      expect(result.structuredContent).toMatchObject({ truncated: true, shown: 5, cap: 3 });
+      expect(result.structuredContent).toMatchObject({ truncated: false, shown: 3, cap: 3 });
     });
 
     it('emits truncation fields on an empty result with the recovery notice', async () => {
@@ -141,13 +141,13 @@ describe('searchProgramsTool', () => {
             {
               code: '52.01',
               title: 'Business',
-              credential_level: 3,
+              credential: { level: 3, title: "Bachelor's Degree" },
               earnings: { highest: { '1_yr': { overall_median_earnings: 40000 } } },
             },
             {
               code: '11.07',
               title: 'Computer Science',
-              credential_level: 3,
+              credential: { level: 3, title: "Bachelor's Degree" },
               earnings: { highest: { '1_yr': { overall_median_earnings: 72000 } } },
             },
           ],
@@ -202,7 +202,8 @@ describe('searchProgramsTool', () => {
           program_title: 'Computer Science',
           earnings_1yr_median: 72000,
           median_debt: 18000,
-          enrollment: 400,
+          ipeds_awards_year1: 400,
+          ipeds_awards_year2: 410,
           suppressed: false,
         },
       ],

@@ -13,7 +13,7 @@ export const programsResource = resource('scorecard://programs/{id}', {
   name: 'scorecard-programs',
   title: 'School Programs',
   description:
-    'Program-level outcomes for a school — 1-year post-graduation earnings, debt, and enrollment by CIP code. Injectable context for program-focused conversations.',
+    'Program-level outcomes by CIP code: median earnings of graduates working and not enrolled 1 year after their highest credential, median cumulative Stafford/Grad PLUS borrowing across institutions at the same academic level, and IPEDS awards in each of the two pooled debt-cohort years (not enrollment or unique students).',
   mimeType: 'application/json',
   params: z.object({
     id: z.string().describe('School unit ID (integer as string).'),
@@ -43,8 +43,9 @@ export const programsResource = resource('scorecard://programs/{id}', {
       title: p.title,
       credential_level: p.credential?.level ?? null,
       earnings_1yr_median: p.earnings?.highest?.['1_yr']?.overall_median_earnings ?? null,
-      median_debt: p.debt?.median_debt ?? null,
-      enrollment: p.counts?.ipeds_enrollment ?? null,
+      median_debt: p.debt?.staff_grad_plus?.all?.all_inst?.median ?? null,
+      ipeds_awards_year1: p.counts?.ipeds_awards1 ?? null,
+      ipeds_awards_year2: p.counts?.ipeds_awards2 ?? null,
     }));
 
     return {

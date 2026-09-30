@@ -7,17 +7,20 @@
 export interface RawProgram {
   code?: string;
   counts?: {
-    ipeds_enrollment?: number | null;
+    ipeds_awards1?: number | null;
+    ipeds_awards2?: number | null;
   };
   credential?: { level?: number | null; title?: string | null };
   debt?: {
-    median_debt?: number | null;
+    staff_grad_plus?: {
+      all?: { all_inst?: { median?: number | null } };
+    };
   };
   earnings?: {
     highest?: {
       '1_yr'?: {
         overall_median_earnings?: number | null;
-        overall_count_titleiv?: number | null;
+        working_not_enrolled?: { overall_count?: number | null };
       };
     };
   };
@@ -131,6 +134,8 @@ export interface ScorecardSearchOptions {
   fields?: string;
   /** School unit ID(s) for batch lookup */
   id?: string | number | Array<string | number>;
+  /** Restrict to men-only institutions (true) or explicitly non-men-only (false). */
+  menOnly?: boolean;
   /** School name full-text filter */
   name?: string;
   /** Ownership type: 1=public, 2=private nonprofit, 3=for-profit */
@@ -143,6 +148,8 @@ export interface ScorecardSearchOptions {
   sort?: string;
   /** Two-letter state code */
   state?: string;
+  /** Restrict to women-only institutions (true) or explicitly non-women-only (false). */
+  womenOnly?: boolean;
   /** US zip code for geographic filter */
   zip?: string;
 }

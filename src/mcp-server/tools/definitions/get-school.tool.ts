@@ -47,6 +47,14 @@ const SchoolProfileSchema = z.object({
   ownership: z.string().describe('Control type: Public, Private nonprofit, or For-profit.'),
   degree_level: z.string().describe('Predominant degree awarded.'),
   hbcu: z.boolean().optional().describe('Historically Black College or University.'),
+  men_only: z
+    .boolean()
+    .optional()
+    .describe('Whether the institution is men-only. Absent when unknown.'),
+  women_only: z
+    .boolean()
+    .optional()
+    .describe('Whether the institution is women-only. Absent when unknown.'),
   enrollment: z.number().optional().describe('Undergraduate enrollment.'),
   // Admissions
   admission_rate: z.number().optional().describe('Overall admission rate (0–1).'),
@@ -187,6 +195,8 @@ export const getSchoolTool = tool('scorecard_get_school', {
         ...(r['school.zip'] && { zip: r['school.zip'] }),
         ...(r['school.school_url'] && { url: r['school.school_url'] }),
         ...(r['school.hbcu'] === 1 && { hbcu: true }),
+        ...(r['school.men_only'] != null && { men_only: r['school.men_only'] === 1 }),
+        ...(r['school.women_only'] != null && { women_only: r['school.women_only'] === 1 }),
         ...(r['latest.student.size'] != null && { enrollment: r['latest.student.size'] }),
         ...(r['latest.admissions.admission_rate.overall'] != null && {
           admission_rate: r['latest.admissions.admission_rate.overall'],
@@ -303,6 +313,8 @@ export const getSchoolTool = tool('scorecard_get_school', {
       if (s.url) lines.push(`**Website:** ${s.url}`);
       lines.push(`**Type:** ${s.ownership} | **Degree:** ${s.degree_level}`);
       if (s.hbcu) lines.push(`**HBCU:** Yes`);
+      if (s.men_only != null) lines.push(`**Men-only:** ${s.men_only ? 'Yes' : 'No'}`);
+      if (s.women_only != null) lines.push(`**Women-only:** ${s.women_only ? 'Yes' : 'No'}`);
       if (s.enrollment != null) lines.push(`**Enrollment:** ${s.enrollment.toLocaleString()}`);
 
       lines.push('\n**Admissions**');
