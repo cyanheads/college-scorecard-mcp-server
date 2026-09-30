@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.2.0](changelog/0.2.x/0.2.0.md) — 2026-09-30 · ⚠️ Breaking
+
+Program enrollment output is removed in favor of ipeds_awards_year1 and ipeds_awards_year2, with program debt and earnings counts read from the correct Scorecard fields. School search gains sort and single-sex filters, and the value-analysis net-price ratio is no longer inflated sixfold.
+
 ## [0.1.9](changelog/0.1.x/0.1.9.md) — 2026-09-21
 
 Stateless HTTP serving by default; scorecard_get_programs matches dotted and undotted CIP codes and reports correct credential levels; every upstream failure now carries an api_error reason and recovery hint.

@@ -1,6 +1,6 @@
 # college-scorecard-mcp-server - Directory Structure
 
-Generated on: 2026-09-22 03:52:35
+Generated on: 2026-09-30 10:33:12
 
 ```text
 college-scorecard-mcp-server/
@@ -25,6 +25,7 @@ college-scorecard-mcp-server/
 │   └── settings.json
 ├── changelog/
 │   ├── 0.1.x/
+│   ├── 0.2.x/
 │   └── template.md
 ├── docs/
 │   ├── design.md
@@ -127,6 +128,7 @@ college-scorecard-mcp-server/
 │   ├── clean-mcpb.ts
 │   ├── clean.ts
 │   ├── devcheck.ts
+│   ├── install-otel.ts
 │   ├── lint-mcp.ts
 │   ├── lint-packaging.ts
 │   ├── list-skills.ts
@@ -171,7 +173,9 @@ college-scorecard-mcp-server/
 │   │   ├── programs.resource.test.ts
 │   │   └── school.resource.test.ts
 │   ├── services/
-│   │   └── scorecard-service.test.ts
+│   │   ├── scorecard-contract.test.ts
+│   │   ├── scorecard-service.test.ts
+│   │   └── value-analysis-contract.test.ts
 │   └── tools/
 │       ├── compare-schools.tool.test.ts
 │       ├── get-earnings.tool.test.ts
