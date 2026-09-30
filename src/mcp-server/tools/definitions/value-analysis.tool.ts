@@ -30,7 +30,7 @@ function netPriceForIncome(
 export const valueAnalysisTool = tool('scorecard_value_analysis', {
   title: 'Value Analysis',
   description:
-    'Workflow tool: parallel-fetches cost, debt, repayment, and earnings data for one school and computes ROI metrics the API does not pre-calculate — debt-to-earnings ratio, net price by income bracket, 3-year repayment progress (share paying down principal), and how these compare within the school\'s Carnegie peer group. family_income narrows the net price to the applicable bracket. Returns a structured summary with all source figures alongside derived metrics. Answers "is this school worth it?" without requiring multiple tool calls.',
+    'Analyze costs, debt, repayment progress, and earnings for one school. Returns debt-to-earnings and net-price-to-annual-earnings ratios alongside the source figures. family_income selects the applicable net-price bracket. Repayment progress is the share of borrowers paying down principal 3 years after entering repayment.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
@@ -93,7 +93,7 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       .number()
       .optional()
       .describe(
-        'Net price divided by annualized 6-year earnings (net_price / (earnings_6yr / 6)). Rough payback-period indicator.',
+        'Net price divided by median annual earnings measured 6 years after entry. Uses the family-income net price when available, otherwise the overall net price.',
       ),
     // Data quality notes
     data_notes: z
@@ -200,7 +200,7 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     const effectiveNetPrice = net_price_for_income ?? net_price_overall;
     const net_price_to_annual_earnings =
       effectiveNetPrice != null && earnings_6yr_median != null && earnings_6yr_median > 0
-        ? Math.round((effectiveNetPrice / (earnings_6yr_median / 6)) * 100) / 100
+        ? Math.round((effectiveNetPrice / earnings_6yr_median) * 100) / 100
         : undefined;
 
     // Collect data quality notes

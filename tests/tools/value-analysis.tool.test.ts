@@ -131,7 +131,7 @@ describe('valueAnalysisTool', () => {
       earnings_6yr_median: 50000,
       earnings_10yr_median: 60000,
       debt_to_earnings_ratio: 0.34,
-      net_price_to_annual_earnings: 1.8,
+      net_price_to_annual_earnings: 0.12,
       data_notes: [],
     };
     const blocks = valueAnalysisTool.format!(output);
