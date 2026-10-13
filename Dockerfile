@@ -14,7 +14,7 @@
 # output. A stage that compiles a native addon needs the target-arch toolchain
 # and cannot cross-compile this way — drop the flag there.
 # ==============================================================================
-FROM --platform=$BUILDPLATFORM oven/bun:1.4.2 AS build
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.3 AS build
 
 WORKDIR /usr/src/app
 
@@ -41,7 +41,7 @@ RUN bun run build
 # Run the scanner and OTel installer natively, cross-installing production
 # dependencies for the target architecture. Only node_modules leaves this stage.
 # ==============================================================================
-FROM --platform=$BUILDPLATFORM oven/bun:1.4.2 AS deps
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.3 AS deps
 
 WORKDIR /usr/src/app
 
@@ -78,6 +78,9 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
       bun scripts/install-otel.ts --os="$TARGETOS" --cpu="$(cat .bun-cpu)"; \
     fi
 
+COPY scripts/prune-musl-packages.ts ./scripts/
+RUN bun scripts/prune-musl-packages.ts
+
 # The scanner is only needed during installation.
 RUN rm -rf node_modules/@socketsecurity/bun-security-scanner
 
@@ -87,7 +90,7 @@ RUN rm -rf node_modules/@socketsecurity/bun-security-scanner
 #
 # Runtime-only stage: Bun runs on the target architecture at container start.
 # ==============================================================================
-FROM oven/bun:1.4.2-slim AS production
+FROM oven/bun:1.4.3-slim AS production
 
 WORKDIR /usr/src/app
 ENV NODE_ENV=production
