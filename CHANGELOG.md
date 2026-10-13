@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.3.0](changelog/0.3.x/0.3.0.md) — 2026-10-13 · ⚠️ Breaking
+
+Preserve requested profile data and classify Scorecard failures with actionable recovery.
+
 ## [0.2.0](changelog/0.2.x/0.2.0.md) — 2026-09-30 · ⚠️ Breaking
 
 Program enrollment output is removed in favor of ipeds_awards_year1 and ipeds_awards_year2, with program debt and earnings counts read from the correct Scorecard fields. School search gains sort and single-sex filters, and the value-analysis net-price ratio is no longer inflated sixfold.
