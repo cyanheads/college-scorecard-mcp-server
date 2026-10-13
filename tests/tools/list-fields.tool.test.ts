@@ -49,10 +49,13 @@ describe('listFieldsTool', () => {
     }
   });
 
-  it('throws no_match for an unknown query', () => {
+  it('returns successful empty matches for an unknown query', async () => {
     const ctx = createMockContext({ errors: listFieldsTool.errors });
     const input = listFieldsTool.input.parse({ query: 'xyzzy_nonexistent_field_9999' });
-    expect(() => listFieldsTool.handler(input, ctx)).toThrow();
+    expect(await listFieldsTool.handler(input, ctx)).toMatchObject({
+      results: [],
+      totalMatches: 0,
+    });
   });
 
   describe('enrichment on every return path', () => {

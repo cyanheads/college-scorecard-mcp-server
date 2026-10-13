@@ -215,7 +215,7 @@ describe('value-analysis real-service contracts', () => {
     },
   );
 
-  it('preserves api_error and key-repair recovery through both surfaces', async () => {
+  it('classifies unauthorized credentials with key-repair recovery through both surfaces', async () => {
     api.route({
       match: /^https:\/\/api\.data\.gov\/ed\/collegescorecard\/v1\/schools\?/,
       respond: () => new Response('', { status: 401 }),
@@ -224,9 +224,9 @@ describe('value-analysis real-service contracts', () => {
     expect(result.isError).toBe(true);
     expect(result.structuredContent).toMatchObject({
       error: {
-        code: JsonRpcErrorCode.ServiceUnavailable,
+        code: JsonRpcErrorCode.Unauthorized,
         data: {
-          reason: 'api_error',
+          reason: 'api_unauthorized',
           retryable: false,
           recovery: { hint: expect.stringContaining('SCORECARD_API_KEY') },
         },

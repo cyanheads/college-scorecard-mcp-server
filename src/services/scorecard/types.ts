@@ -81,10 +81,10 @@ export interface RawSchoolRecord {
   'school.carnegie_basic'?: number | null;
   'school.city'?: string;
   'school.degrees_awarded.predominant'?: number | null;
-  'school.hbcu'?: number | null;
   'school.institutional_characteristics.level'?: number | null;
   'school.locale'?: number | null;
   'school.men_only'?: number | null;
+  'school.minority_serving.historically_black'?: number | null;
   'school.name'?: string;
   'school.ownership'?: number | null;
   'school.school_url'?: string;
@@ -121,13 +121,13 @@ export interface ScorecardApiError {
 /** Options for a search query */
 export interface ScorecardSearchOptions {
   /** Acceptance rate range [min, max] 0-1 */
-  acceptanceRateRange?: [number, number];
+  acceptanceRateRange?: [number, number] | undefined;
   /** CIP code filter */
-  cipCode?: string;
+  cipCode?: string | undefined;
   /** Predominant degree level: 0-4 */
   degreeLevel?: number;
   /** Distance from zip (e.g. "50mi") */
-  distance?: string;
+  distance?: string | undefined;
   /** Additional query params */
   extraParams?: Record<string, string | number>;
   /** Custom field selection (comma-separated) */
@@ -137,19 +137,19 @@ export interface ScorecardSearchOptions {
   /** Restrict to men-only institutions (true) or explicitly non-men-only (false). */
   menOnly?: boolean;
   /** School name full-text filter */
-  name?: string;
+  name?: string | undefined;
   /** Ownership type: 1=public, 2=private nonprofit, 3=for-profit */
   ownership?: number;
   page?: number;
   perPage?: number;
   /** Enrollment size range [min, max] */
-  sizeRange?: [number, number];
+  sizeRange?: [number, number] | undefined;
   /** Sort expression (e.g. "latest.cost.tuition.in_state:asc") */
-  sort?: string;
+  sort?: string | undefined;
   /** Two-letter state code */
-  state?: string;
+  state?: string | undefined;
   /** Restrict to women-only institutions (true) or explicitly non-women-only (false). */
   womenOnly?: boolean;
   /** US zip code for geographic filter */
-  zip?: string;
+  zip?: string | undefined;
 }

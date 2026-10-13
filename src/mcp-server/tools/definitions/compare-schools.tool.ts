@@ -6,6 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { normalizeSchoolId, SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 /** Compute rank within an array of values (0-indexed, higher is better for most metrics) */
@@ -51,18 +52,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
-    ids: z
-      .array(
-        z
-          .union([
-            z.string().describe('School unit ID as string.'),
-            z.number().describe('School unit ID as number.'),
-          ])
-          .describe('School unit ID (string or number).'),
-      )
-      .min(2)
-      .max(5)
-      .describe('Array of 2–5 school unit IDs to compare.'),
+    ids: z.array(SchoolIdSchema).min(2).max(5).describe('Array of 2–5 school unit IDs to compare.'),
     topic: z
       .enum(['costs', 'admissions', 'outcomes', 'aid'])
       .describe('Comparison topic: costs, admissions, outcomes, or aid.'),
@@ -95,6 +85,77 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
 
   errors: [
     {
+      reason: 'api_conflict',
+      code: JsonRpcErrorCode.Conflict,
+      when: 'The provider reported a request conflict.',
+      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_invalid_params',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'Provider rejected a query parameter.',
+      recovery:
+        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_validation',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A meaningful selector or provider value is invalid.',
+      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_unauthorized',
+      code: JsonRpcErrorCode.Unauthorized,
+      when: 'The provider rejected the API credentials.',
+      recovery: 'Verify SCORECARD_API_KEY is valid and retry with valid credentials.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_forbidden',
+      code: JsonRpcErrorCode.Forbidden,
+      when: 'The provider denied access.',
+      recovery: 'Check SCORECARD_API_KEY permissions and provider access before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_rate_limited',
+      code: JsonRpcErrorCode.RateLimited,
+      when: 'The provider throttled the request.',
+      recovery: 'Wait for the provider retry window before making another request.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_timeout',
+      code: JsonRpcErrorCode.Timeout,
+      when: 'The provider exchange exceeded its deadline.',
+      recovery: 'Retry after a brief delay or narrow the requested data.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_not_found',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'The provider endpoint returned HTTP 404.',
+      recovery: 'Check provider availability and retry the request after a brief delay.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_invalid_request',
+      code: JsonRpcErrorCode.InvalidRequest,
+      when: 'The provider returned an unexpected redirect.',
+      recovery: 'Check provider availability before retrying this request with the same selectors.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_internal',
+      code: JsonRpcErrorCode.InternalError,
+      when: 'The provider returned an unclassified HTTP response.',
+      recovery: 'Retry after a brief delay and report persistent provider failures.',
+      thrownBy: 'service',
+    },
+    {
       reason: 'schools_not_found',
       code: JsonRpcErrorCode.NotFound,
       when: 'None of the requested school IDs returned records.',
@@ -104,12 +165,13 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       reason: 'api_error',
       code: JsonRpcErrorCode.ServiceUnavailable,
       when: 'The College Scorecard API returned an error.',
-      recovery: 'Check SCORECARD_API_KEY validity and retry after a brief delay.',
+      recovery: 'Retry after a brief delay and report persistent provider failures.',
       thrownBy: 'service',
     },
   ],
 
   async handler(input, ctx) {
+    input = { ...input, ids: input.ids.map(normalizeSchoolId) };
     ctx.log.info('Comparing schools', { ids: input.ids, topic: input.topic });
     const service = getScorecardService();
 

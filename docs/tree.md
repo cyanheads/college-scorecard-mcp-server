@@ -1,6 +1,6 @@
 # college-scorecard-mcp-server - Directory Structure
 
-Generated on: 2026-09-30 10:33:12
+Generated on: 2026-10-13 14:19:30
 
 ```text
 college-scorecard-mcp-server/
@@ -132,6 +132,7 @@ college-scorecard-mcp-server/
 │   ├── lint-mcp.ts
 │   ├── lint-packaging.ts
 │   ├── list-skills.ts
+│   ├── prune-musl-packages.ts
 │   ├── release-github.ts
 │   └── tree.ts
 ├── src/
@@ -163,6 +164,7 @@ college-scorecard-mcp-server/
 │   │   └── format-helpers.ts
 │   ├── services/
 │   │   └── scorecard/
+│   │       ├── input-normalization.ts
 │   │       ├── scorecard-service.ts
 │   │       └── types.ts
 │   └── index.ts

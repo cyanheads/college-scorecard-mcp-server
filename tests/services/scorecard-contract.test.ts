@@ -13,10 +13,16 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FIELD_CATALOG } from '@/data/field-catalog.js';
 import { programsResource } from '@/mcp-server/resources/definitions/programs.resource.js';
+import { schoolResource } from '@/mcp-server/resources/definitions/school.resource.js';
+import { compareSchoolsTool } from '@/mcp-server/tools/definitions/compare-schools.tool.js';
+import { getEarningsTool } from '@/mcp-server/tools/definitions/get-earnings.tool.js';
 import { getProgramsTool } from '@/mcp-server/tools/definitions/get-programs.tool.js';
 import { getSchoolTool } from '@/mcp-server/tools/definitions/get-school.tool.js';
+import { listFieldsTool } from '@/mcp-server/tools/definitions/list-fields.tool.js';
+import { lookupCipTool } from '@/mcp-server/tools/definitions/lookup-cip.tool.js';
 import { searchProgramsTool } from '@/mcp-server/tools/definitions/search-programs.tool.js';
 import { searchSchoolsTool } from '@/mcp-server/tools/definitions/search-schools.tool.js';
+import { valueAnalysisTool } from '@/mcp-server/tools/definitions/value-analysis.tool.js';
 import {
   getScorecardService,
   initScorecardService,
@@ -69,6 +75,655 @@ describe('Scorecard caller contracts', () => {
     vi.unstubAllEnvs();
   });
 
+  describe('reconciled lookup and search regressions', () => {
+    const statusCases = [
+      [400, JsonRpcErrorCode.InvalidParams, 'api_invalid_params', 1],
+      [422, JsonRpcErrorCode.ValidationError, 'api_validation', 1],
+      [401, JsonRpcErrorCode.Unauthorized, 'api_unauthorized', 1],
+      [403, JsonRpcErrorCode.Forbidden, 'api_forbidden', 1],
+      [409, JsonRpcErrorCode.Conflict, 'api_conflict', 1],
+      [429, JsonRpcErrorCode.RateLimited, 'api_rate_limited', 4],
+      [408, JsonRpcErrorCode.Timeout, 'api_timeout', 4],
+      [504, JsonRpcErrorCode.Timeout, 'api_timeout', 4],
+      [500, JsonRpcErrorCode.ServiceUnavailable, 'api_error', 4],
+    ] as const;
+
+    it.each(statusCases)(
+      'maps provider HTTP %i through actual retry on tool and resource handlers',
+      async (status, code, reason, attempts) => {
+        vi.useFakeTimers();
+        let calls = 0;
+        api.route({
+          match: endpoint,
+          respond: () => {
+            calls++;
+            return Response.json(
+              {
+                message: `Provider detail https://api.data.gov/path?api_key=test-key token=test-key`,
+              },
+              { status },
+            );
+          },
+        });
+        const resultPending = runToolContract(getSchoolTool, { id: 236948 });
+        await vi.runAllTimersAsync();
+        const result = await resultPending;
+        expect(result.structuredContent).toMatchObject({
+          error: { code, data: { reason, status, recovery: { hint: expect.any(String) } } },
+        });
+        expect(calls).toBe(attempts);
+        expect(textOf(result)).toContain('Provider detail');
+        expect(JSON.stringify(result)).not.toContain('test-key');
+        for (const definition of [schoolResource, programsResource]) {
+          calls = 0;
+          const pending = Promise.resolve(
+            definition.handler({ id: '236948' }, createMockContext({ errors: definition.errors })),
+          ).catch((error: unknown) => error);
+          await vi.runAllTimersAsync();
+          const error = await pending;
+          expect(error).toMatchObject({
+            code,
+            data: { reason, status, recovery: { hint: expect.any(String) } },
+          });
+          expect(calls).toBe(attempts);
+          expect(JSON.stringify(error)).not.toContain('test-key');
+        }
+      },
+    );
+
+    it.each([schoolResource, programsResource])(
+      'returns resource recovery for missing $name',
+      async (definition) => {
+        serve([]);
+        await expect(
+          definition.handler({ id: '987654321' }, createMockContext({ errors: definition.errors })),
+        ).rejects.toMatchObject({
+          code: JsonRpcErrorCode.NotFound,
+          data: { reason: 'school_not_found' },
+        });
+        expect(
+          definition.errors?.find((entry) => entry.reason === 'school_not_found')?.recovery,
+        ).toContain('scorecard_search_schools');
+      },
+    );
+
+    it.each([schoolResource, programsResource])(
+      'preserves sparse/null successful resource JSON for $name',
+      async (definition) => {
+        serve([
+          {
+            id: 236948,
+            'school.name': 'Sparse school',
+            'latest.cost.tuition.in_state': null,
+            'latest.programs.cip_4_digit': [],
+          },
+        ]);
+        const result = await definition.handler(
+          { id: ' 0236948 ' },
+          createMockContext({ errors: definition.errors }),
+        );
+        expect(JSON.parse(JSON.stringify(result))).toMatchObject(
+          definition === schoolResource
+            ? { id: 236948, tuition_in_state: null }
+            : { school_id: 236948, programs: [], total: 0 },
+        );
+        expect(requests[0]!.searchParams.get('id')).toBe('236948');
+      },
+    );
+
+    it.each([schoolResource, programsResource])(
+      'rejects invalid resource IDs before fetch for $name',
+      async (definition) => {
+        serve([school()]);
+        for (const id of [' ', '-1', '0', '1.5', 'abc', '9007199254740992'])
+          expect(() => definition.params?.parse({ id })).toThrow();
+        expect(requests).toHaveLength(0);
+      },
+    );
+
+    it('keeps the deadline armed while reading the body, then retries and recovers', async () => {
+      vi.useFakeTimers();
+      let calls = 0;
+      let cancelled = 0;
+      api.route({
+        match: endpoint,
+        respond: (request) => {
+          calls++;
+          if (calls === 1)
+            return new Response(
+              new ReadableStream({
+                start(stream) {
+                  request.signal.addEventListener(
+                    'abort',
+                    () => {
+                      cancelled++;
+                      stream.error(request.signal.reason);
+                    },
+                    { once: true },
+                  );
+                },
+              }),
+            );
+          return Response.json({
+            metadata: { total: 1, page: 0, per_page: 1 },
+            results: [school()],
+          });
+        },
+      });
+      const pending = runToolContract(getSchoolTool, { id: 236948 });
+      await vi.runAllTimersAsync();
+      const result = await pending;
+      expect(result.isError).toBeFalsy();
+      expect(calls).toBe(2);
+      expect(cancelled).toBe(1);
+      expect(result.structuredContent).toMatchObject({ total_found: 1 });
+    });
+
+    it('stops a pending body read on caller cancellation without retrying', async () => {
+      const controller = new AbortController();
+      let announceHeaders: (() => void) | undefined;
+      const headers = new Promise<void>((resolve) => {
+        announceHeaders = resolve;
+      });
+      let calls = 0;
+      api.route({
+        match: endpoint,
+        respond: (request) => {
+          calls++;
+          announceHeaders?.();
+          return new Response(
+            new ReadableStream({
+              start(stream) {
+                request.signal.addEventListener(
+                  'abort',
+                  () => stream.error(request.signal.reason),
+                  { once: true },
+                );
+              },
+            }),
+          );
+        },
+      });
+      const pending = runToolContract(
+        getSchoolTool,
+        { id: 236948 },
+        { context: { signal: controller.signal } },
+      );
+      await headers;
+      await Promise.resolve();
+      controller.abort();
+      const result = await pending;
+      expect(result.structuredContent).toMatchObject({
+        error: { code: JsonRpcErrorCode.RequestCancelled },
+      });
+      expect(textOf(result).toLowerCase()).toMatch(/abort|cancel/);
+      expect(calls).toBe(1);
+    });
+
+    it.each([
+      '',
+      '   ',
+      'abc',
+      '0',
+      '-1',
+      '1.5',
+      '9007199254740992',
+      '0x39d94',
+      'Infinity',
+      'NaN',
+      0,
+      -1,
+      1.5,
+      Number.MAX_SAFE_INTEGER + 1,
+    ])('rejects invalid ID %s on every lookup surface without fetching', async (id) => {
+      serve([school()]);
+      for (const tool of [getSchoolTool, getProgramsTool, getEarningsTool, valueAnalysisTool]) {
+        const result = await runToolContract(tool, { id });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toMatchObject({
+          error: { code: JsonRpcErrorCode.InvalidParams },
+        });
+        expect(textOf(result)).toContain('Invalid arguments');
+      }
+      const comparison = await runToolContract(compareSchoolsTool, {
+        ids: [236948, id],
+        topic: 'costs',
+      });
+      expect(comparison.isError).toBe(true);
+      expect(() =>
+        getScorecardService().getSchoolProfiles([id], undefined, createMockContext()),
+      ).toThrow();
+      expect(() => getScorecardService().getSchoolEarnings(id, [], createMockContext())).toThrow();
+      expect(() => getScorecardService().getValueAnalysisData(id, createMockContext())).toThrow();
+      expect(() =>
+        getScorecardService().getSchoolPrograms(
+          id,
+          undefined,
+          undefined,
+          undefined,
+          createMockContext(),
+        ),
+      ).toThrow();
+      expect(requests).toHaveLength(0);
+    });
+
+    it.each([236948, '236948', ' 0236948 ', '236948.0', '+236948', '2.36948e5'])(
+      'normalizes valid ID %s for every service entry point',
+      async (id) => {
+        serve([school()]);
+        const service = getScorecardService();
+        const ctx = createMockContext();
+        await service.getSchoolProfiles([id], undefined, ctx);
+        await service.getSchoolPrograms(id, undefined, undefined, undefined, ctx);
+        await service.getSchoolEarnings(id, [], ctx);
+        await service.getValueAnalysisData(id, ctx);
+        await service.getComparisonData([id, 123], 'costs', ctx);
+        expect(requests.map((url) => url.searchParams.get('id'))).toEqual([
+          '236948',
+          '236948',
+          '236948',
+          '236948',
+          '236948',
+          '236948,123',
+        ]);
+      },
+    );
+
+    it.each([100, 101, 1000, 1001])(
+      'serves or rejects %i raw IDs at the documented boundaries',
+      async (count) => {
+        const ids = Array.from({ length: count }, (_, index) => index + 1);
+        api.route({
+          match: endpoint,
+          respond: (request) => {
+            const url = new URL(request.url);
+            requests.push(url);
+            const processed = url.searchParams.get('id')!.split(',').map(Number);
+            return Response.json({
+              metadata: { total: processed.length, page: 0, per_page: processed.length },
+              results: processed.map((id) => ({ id, 'school.name': `School ${id}` })),
+            });
+          },
+        });
+        const result = await runToolContract(getSchoolTool, { id: ids });
+        if (count > 1000) {
+          expect(result.isError).toBe(true);
+          expect(requests).toHaveLength(0);
+        } else {
+          expect(result.isError).toBeFalsy();
+          expect(result.structuredContent).toMatchObject({
+            total_requested: count,
+            total_found: Math.min(count, 100),
+            missing_ids: [],
+            unprocessed_ids: ids.slice(100),
+          });
+          expect(textOf(result)).toContain(`**Requested:** ${count}`);
+          expect(textOf(result)).toContain('Unprocessed IDs');
+        }
+      },
+    );
+
+    it('does not truncate duplicate-heavy batches', async () => {
+      serve([school()]);
+      const result = await runToolContract(getSchoolTool, {
+        id: Array.from({ length: 1000 }, (_, index) => (index % 2 ? '0236948' : 236948)),
+      });
+      expect(result.structuredContent).toMatchObject({
+        total_requested: 1,
+        total_found: 1,
+        missing_ids: [],
+        unprocessed_ids: [],
+      });
+      expect(requests[0]!.searchParams.get('id')).toBe('236948');
+    });
+
+    it('keeps missing processed and unchecked excess separate in error text', async () => {
+      serve([]);
+      const result = await runToolContract(getSchoolTool, {
+        id: Array.from({ length: 101 }, (_, index) => index + 1),
+      });
+      expect(result.structuredContent).toMatchObject({
+        error: { code: JsonRpcErrorCode.NotFound, data: { unprocessed_ids: [101] } },
+      });
+      expect(textOf(result)).toContain('100 processed IDs');
+      expect(textOf(result)).toContain('Unprocessed IDs: 101');
+      expect(textOf(result)).toContain('have not been checked');
+    });
+
+    it.each([
+      {
+        state: ' wa, ca ',
+        zip: '98105-1234',
+        distance: '5.5KM',
+        sort: 'id:ASC',
+        cip_code: ' 11.07 ',
+        size_range: { min: 100, max: 10 },
+      },
+      { state: '', zip: '98105', distance: '', sort: 'id', cip_code: ' ' },
+      { state: 'ZZ', zip: '98105', distance: '0mi', sort: 'id:desc', cip_code: '99.99' },
+      { zip: '98105', distance: '.5' },
+    ])('preserves supported selectors %j', async (input) => {
+      serve([]);
+      const result = await runToolContract(searchSchoolsTool, input);
+      expect(result.isError).toBeFalsy();
+      expect(requests).toHaveLength(1);
+      const params = requests[0]!.searchParams;
+      if (input.state?.includes(',')) expect(params.get('school.state')).toBe('WA,CA');
+      if (input.size_range) expect(params.get('latest.student.size__range')).toBe('10..100');
+      if (input.cip_code?.trim())
+        expect(params.get('latest.programs.cip_4_digit.code')).toBe(
+          input.cip_code.trim().replace('.', ''),
+        );
+      expect(textOf(result)).not.toContain('"state":""');
+    });
+
+    it.each([
+      { zip: 'not-a-zip' },
+      { distance: '-5mi', zip: '98105' },
+      { distance: '5zz', zip: '98105' },
+      { sort: 'id:sideways' },
+      { sort: 'id:asc,school.name:desc' },
+      { state: 'W' },
+      { cip_code: '110701' },
+    ])('rejects malformed meaningful selectors %j before fetch', async (input) => {
+      serve([]);
+      const result = await runToolContract(searchSchoolsTool, input);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        error: {
+          code: JsonRpcErrorCode.ValidationError,
+          data: { reason: 'api_validation', recovery: { hint: expect.any(String) } },
+        },
+      });
+      expect(requests).toHaveLength(0);
+    });
+
+    it.each([getProgramsTool, searchProgramsTool])(
+      'rejects malformed CIP locally for $name',
+      async (tool) => {
+        serve([school()]);
+        const result = await runToolContract(tool, { id: 236948, cip_code: '11.0701' });
+        expect(result.isError).toBe(true);
+        expect(requests).toHaveLength(0);
+      },
+    );
+
+    it.each([listFieldsTool, lookupCipTool])(
+      'rejects required blank queries and reports catalog cap/total honestly for $name',
+      async (tool) => {
+        const invalid = await runToolContract(tool, { query: '   ', limit: 1 });
+        expect(invalid.isError).toBe(true);
+        const query = tool === listFieldsTool ? 'latest' : 'business';
+        const short = await runToolContract(tool, { query, limit: 1 });
+        const full = await runToolContract(tool, { query, limit: 1000 });
+        const shortData = short.structuredContent as { totalMatches: number; truncated: boolean };
+        const fullData = full.structuredContent as { totalMatches: number; cap: number };
+        expect(shortData.totalMatches).toBe(fullData.totalMatches);
+        expect(shortData.truncated).toBe(true);
+        expect(textOf(short)).toMatch(/Narrow/);
+        expect(fullData.cap).toBe(tool === listFieldsTool ? 100 : 50);
+        const empty = await runToolContract(tool, { query: 'nonexistent-xyzzy', limit: 1 });
+        expect(empty.isError).toBeFalsy();
+        expect(empty.structuredContent).toMatchObject({
+          results: [],
+          totalMatches: 0,
+          truncated: false,
+        });
+        expect(textOf(empty)).toContain('No ');
+        const tooLarge = await runToolContract(tool, { query, limit: 1001 });
+        expect(tooLarge.isError).toBe(true);
+      },
+    );
+
+    it('omits ignored and blank selectors from program search echoes', async () => {
+      serve([school([program()])]);
+      const result = await runToolContract(searchProgramsTool, {
+        cip_code: ' 11.07 ',
+        program_name: 'ignored',
+        state: 'wa',
+      });
+      expect(result.structuredContent).toMatchObject({
+        query: { cip_code: '1107', state: 'WA', per_page: 20, page: 0 },
+      });
+      expect((result.structuredContent as { query: unknown }).query).not.toHaveProperty(
+        'program_name',
+      );
+      expect(textOf(result)).not.toContain('ignored');
+    });
+    it('characterizes default identity and cost rendering', async () => {
+      serve([{ ...school(), 'latest.cost.tuition.in_state': 1234 }]);
+      const result = await runToolContract(getSchoolTool, { id: 236948 });
+      expect(result.structuredContent).toMatchObject({
+        schools: [{ id: 236948, tuition_in_state: 1234 }],
+      });
+      expect(textOf(result)).toContain('$1,234');
+    });
+
+    it('rejects blank lookup IDs before fetching', async () => {
+      serve([school()]);
+      const result = await runToolContract(getSchoolTool, { id: '' });
+      expect(result.isError).toBe(true);
+      expect(requests).toHaveLength(0);
+    });
+
+    it('preserves selected values and identifies absent paths without default metrics', async () => {
+      serve([
+        {
+          ...school(),
+          'custom.null': null,
+          'custom.zero': 0,
+          'custom.false': false,
+          'custom.empty': '',
+          'custom.tree': { rows: [{ values: [null, 0, false, ''] }] },
+        },
+      ]);
+      const result = await runToolContract(getSchoolTool, {
+        id: 236948,
+        fields: 'custom.null,custom.zero,custom.false,custom.empty,custom.tree,custom.absent',
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        schools: [
+          {
+            id: 236948,
+            name: 'Test University',
+            selected_fields: {
+              'custom.null': null,
+              'custom.zero': 0,
+              'custom.false': false,
+              'custom.empty': '',
+              'custom.tree': { rows: [{ values: [null, 0, false, ''] }] },
+            },
+            absent_fields: ['custom.absent'],
+          },
+        ],
+      });
+      expect(requests[0]!.searchParams.get('fields')).toContain('id,school.name');
+      expect(textOf(result)).toContain('**custom.null:** null');
+      expect(textOf(result)).toContain('**custom.zero:** 0');
+      expect(textOf(result)).toContain('**custom.false:** false');
+      expect(textOf(result)).toContain('**custom.empty:** ""');
+      expect(textOf(result)).toContain('[null,0,false,""]');
+      expect(textOf(result)).not.toContain('Not available');
+    });
+
+    it('preserves requested program leaves returned in the provider parent array', async () => {
+      serve([
+        school([
+          { code: '1107', earnings: { highest: { '1_yr': { overall_median_earnings: 101710 } } } },
+          { code: '1107', earnings: { highest: { '1_yr': { overall_median_earnings: null } } } },
+          { code: '1108' },
+        ]),
+      ]);
+      const codePath = 'latest.programs.cip_4_digit.code';
+      const earningsPath =
+        'latest.programs.cip_4_digit.earnings.highest.1_yr.overall_median_earnings';
+      const absentPath = 'latest.programs.cip_4_digit.nonexistent';
+      const result = await runToolContract(getSchoolTool, {
+        id: 236948,
+        fields: [codePath, earningsPath, absentPath].join(','),
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        schools: [
+          {
+            selected_fields: {
+              'latest.programs.cip_4_digit': [
+                {
+                  code: '1107',
+                  earnings: { highest: { '1_yr': { overall_median_earnings: 101710 } } },
+                },
+                {
+                  code: '1107',
+                  earnings: { highest: { '1_yr': { overall_median_earnings: null } } },
+                },
+                { code: '1108' },
+              ],
+            },
+            absent_fields: [absentPath],
+          },
+        ],
+      });
+      const selected = (
+        result.structuredContent as { schools: { selected_fields: Record<string, unknown> }[] }
+      ).schools[0]!.selected_fields;
+      expect(textOf(result)).toContain(
+        `**latest.programs.cip_4_digit:** ${JSON.stringify(selected['latest.programs.cip_4_digit'])}`,
+      );
+      expect(Object.keys(selected)).toEqual(['latest.programs.cip_4_digit']);
+    });
+
+    it.each([1, 0, null, undefined])('maps the actual HBCU provider field (%s)', async (flag) => {
+      serve([
+        {
+          ...school(),
+          ...(flag === undefined ? {} : { 'school.minority_serving.historically_black': flag }),
+        },
+      ]);
+      const result = await runToolContract(getSchoolTool, { id: 236948 });
+      const row = (result.structuredContent as { schools: Record<string, unknown>[] }).schools[0]!;
+      if (flag == null) expect(row).not.toHaveProperty('hbcu');
+      else {
+        expect(row.hbcu).toBe(flag === 1);
+        expect(textOf(result)).toContain(`**HBCU:** ${flag === 1 ? 'Yes' : 'No'}`);
+      }
+      expect(requests[0]!.searchParams.get('fields')).toContain(
+        'school.minority_serving.historically_black',
+      );
+    });
+    it('preserves the captured Howard and Washington HBCU provider records', async () => {
+      serve([
+        {
+          id: 131520,
+          'school.name': 'Howard University',
+          'school.minority_serving.historically_black': 1,
+        },
+        {
+          id: 236948,
+          'school.name': 'University of Washington-Seattle Campus',
+          'school.minority_serving.historically_black': 0,
+        },
+      ]);
+      const result = await runToolContract(getSchoolTool, { id: [131520, 236948] });
+      expect(result.structuredContent).toMatchObject({
+        schools: [
+          { id: 131520, name: 'Howard University', hbcu: true },
+          { id: 236948, name: 'University of Washington-Seattle Campus', hbcu: false },
+        ],
+      });
+      expect(textOf(result)).toContain('**HBCU:** Yes');
+      expect(textOf(result)).toContain('**HBCU:** No');
+    });
+
+    it('deduplicates normalized IDs before capping and separates unprocessed IDs', async () => {
+      serve([school()]);
+      const ids = [236948, ' 0236948 ', ...Array.from({ length: 100 }, (_, i) => 1000 + i)];
+      const result = await runToolContract(getSchoolTool, { id: ids });
+      expect(result.structuredContent).toMatchObject({
+        total_requested: 101,
+        total_found: 1,
+        unprocessed_ids: [1099],
+        missing_ids: Array.from({ length: 99 }, (_, i) => 1000 + i),
+      });
+      expect(requests[0]!.searchParams.get('id')!.split(',')).toHaveLength(100);
+      expect(requests[0]!.searchParams.get('id')).not.toContain('1099');
+      expect(textOf(result)).toContain('Unprocessed');
+    });
+
+    it.each([
+      [listFieldsTool, 'school.name'],
+      [lookupCipTool, '11.07'],
+    ] as const)(
+      'counts before slicing and preserves exact-limit guidance for $0.name',
+      async (tool, query) => {
+        const result = await runToolContract(tool, { query, limit: 1 });
+        expect(result.structuredContent).toMatchObject({ totalMatches: 1, truncated: false });
+      },
+    );
+
+    it('rejects invalid geographic relationships without fetching', async () => {
+      serve([]);
+      const result = await runToolContract(searchSchoolsTool, { distance: '5mi' });
+      expect(result.isError).toBe(true);
+      expect(requests).toHaveLength(0);
+    });
+
+    it('classifies permanent provider validation once with safe detail', async () => {
+      vi.useFakeTimers();
+      let calls = 0;
+      api.route({
+        match: endpoint,
+        respond: () => {
+          calls++;
+          return Response.json({ errors: [{ message: 'Invalid ZIP' }] }, { status: 400 });
+        },
+      });
+      const pending = runToolContract(searchSchoolsTool, {});
+      await vi.runAllTimersAsync();
+      const result = await pending;
+      expect(result.structuredContent).toMatchObject({
+        error: {
+          code: JsonRpcErrorCode.InvalidParams,
+          data: { reason: 'api_invalid_params', status: 400 },
+        },
+      });
+      expect(textOf(result)).toContain('Invalid ZIP');
+      expect(textOf(result)).not.toContain('SCORECARD_API_KEY');
+      expect(calls).toBe(1);
+    });
+
+    it('echoes normalized filters and distinguishes exhausted school pages', async () => {
+      serve([], { total: 2, page: 2, per_page: 1 });
+      const result = await runToolContract(searchSchoolsTool, {
+        state: 'wa',
+        page: 2,
+        per_page: 1,
+      });
+      expect(result.structuredContent).toMatchObject({
+        query: { state: 'WA', page: 2, per_page: 1 },
+        notice: expect.stringContaining('exhausted'),
+      });
+      expect(textOf(result)).toContain('WA');
+      expect(textOf(result)).not.toContain('No schools matched');
+    });
+    it('echoes replayable normalized range bounds', async () => {
+      serve([]);
+      const result = await runToolContract(searchSchoolsTool, {
+        size_range: { min: 100, max: 10 },
+        acceptance_rate_range: { min: 0.9, max: 0.1 },
+      });
+      const query = (result.structuredContent as { query: Record<string, unknown> }).query;
+      expect(query).toMatchObject({
+        size_range: { min: 10, max: 100 },
+        acceptance_rate_range: { min: 0.1, max: 0.9 },
+      });
+      expect(searchSchoolsTool.input.safeParse(query).success).toBe(true);
+      const replay = await runToolContract(searchSchoolsTool, query);
+      expect(replay.isError).toBeFalsy();
+      expect(requests[1]!.searchParams.toString()).toBe(requests[0]!.searchParams.toString());
+    });
+  });
+
   describe('characterization', () => {
     it('rejects empty IDs semantically without fetching, through service and tool', async () => {
       serve([]);
@@ -78,7 +733,16 @@ describe('Scorecard caller contracts', () => {
       const result = await runToolContract(getSchoolTool, { id: [] });
       expect(result.isError).toBe(true);
       expect(result.structuredContent).toMatchObject({
-        error: { code: -32007, message: 'No school IDs provided.' },
+        error: {
+          code: -32007,
+          message: 'No school IDs provided.',
+          data: {
+            reason: 'api_validation',
+            recovery: {
+              hint: 'Correct the reported selector or required ID before retrying the request.',
+            },
+          },
+        },
       });
       expect(textOf(result)).toContain('No school IDs provided.');
       expect(requests).toHaveLength(0);
@@ -116,7 +780,10 @@ describe('Scorecard caller contracts', () => {
       expect(textOf(result)).toContain('$70,000');
       expect(textOf(result)).toContain('$0');
       expect(textOf(result)).toContain('Suppressed');
-      const resource = await programsResource.handler({ id: '236948' }, createMockContext());
+      const resource = await programsResource.handler(
+        { id: '236948' },
+        createMockContext({ errors: programsResource.errors }),
+      );
       expect(resource).toMatchObject({
         total: 3,
         programs: [
@@ -221,7 +888,10 @@ describe('Scorecard caller contracts', () => {
             );
           }
         }
-        const resource = await programsResource.handler({ id: '236948' }, createMockContext());
+        const resource = await programsResource.handler(
+          { id: '236948' },
+          createMockContext({ errors: programsResource.errors }),
+        );
         expect(resource).toMatchObject({ programs: [metrics] });
         expect(JSON.stringify(resource)).not.toContain('enrollment');
       },
@@ -270,7 +940,10 @@ describe('Scorecard caller contracts', () => {
           }
           expect(textOf(result)).not.toContain('IPEDS Awards');
         }
-        const resource = await programsResource.handler({ id: '236948' }, createMockContext());
+        const resource = await programsResource.handler(
+          { id: '236948' },
+          createMockContext({ errors: programsResource.errors }),
+        );
         expect(resource).toMatchObject({
           programs: [{ median_debt: null, ipeds_awards_year1: null, ipeds_awards_year2: null }],
         });
@@ -413,9 +1086,7 @@ describe('Scorecard caller contracts', () => {
           expect(text).not.toContain('Request page');
         }
         if (count === 0)
-          expect(text).toContain(
-            tool === searchSchoolsTool ? 'No schools matched' : 'No programs matched',
-          );
+          expect(text).toContain(total > 0 ? 'page is exhausted' : 'No schools matched');
       });
     }
 
@@ -485,9 +1156,9 @@ describe('Scorecard caller contracts', () => {
       expect(result.isError).toBe(true);
       expect(result.structuredContent).toMatchObject({
         error: {
-          code: JsonRpcErrorCode.ServiceUnavailable,
+          code: status === 403 ? JsonRpcErrorCode.Forbidden : JsonRpcErrorCode.Unauthorized,
           data: {
-            reason: 'api_error',
+            reason: status === 403 ? 'api_forbidden' : 'api_unauthorized',
             retryable: false,
             recovery: { hint: expect.stringContaining('SCORECARD_API_KEY') },
           },
@@ -514,12 +1185,12 @@ describe('Scorecard caller contracts', () => {
       expect(result.isError).toBe(true);
       expect(result.structuredContent).toMatchObject({
         error: {
-          code: JsonRpcErrorCode.ServiceUnavailable,
-          data: { reason: 'api_error', retryAttempts: 4 },
+          code: status === 429 ? JsonRpcErrorCode.RateLimited : JsonRpcErrorCode.ServiceUnavailable,
+          data: { reason: status === 429 ? 'api_rate_limited' : 'api_error', retryAttempts: 4 },
         },
       });
       expect(calls).toBe(4);
-      expect(textOf(result)).toContain('retry');
+      expect(textOf(result).toLowerCase()).toContain('retry');
     });
   });
 
@@ -573,7 +1244,7 @@ describe('Scorecard caller contracts', () => {
         serve([
           {
             ...school(),
-            'school.hbcu': 1,
+            'school.minority_serving.historically_black': 1,
             'latest.student.size': 42,
             ...(flag === undefined ? {} : { 'school.men_only': flag, 'school.women_only': flag }),
           },

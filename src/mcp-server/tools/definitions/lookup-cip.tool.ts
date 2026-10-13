@@ -5,7 +5,6 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { searchCipCodes } from '@/data/cip-codes.js';
 
 export const lookupCipTool = tool('scorecard_lookup_cip', {
@@ -17,6 +16,7 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
   input: z.object({
     query: z
       .string()
+      .trim()
       .min(1)
       .describe(
         'Search term — program name keyword (e.g. "computer science", "nursing", "business"). Matches against CIP titles and family names.',
@@ -25,9 +25,9 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
       .number()
       .int()
       .min(1)
-      .max(50)
+      .max(1000)
       .default(20)
-      .describe('Maximum number of matching codes to return.'),
+      .describe('Requested limit; serving cap 50, hard ceiling 1,000.'),
   }),
 
   output: z.object({
@@ -48,44 +48,45 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
   }),
 
   enrichment: {
+    notice: z.string().optional().describe('No-match guidance.'),
+    guidance: z.string().optional().describe('Concrete narrowing guidance when matches remain.'),
+    queryContext: z
+      .object({
+        query: z.string().describe('Normalized query.'),
+        limit: z.number().describe('Applied limit.'),
+      })
+      .describe('Effective selectors.'),
     truncated: z.boolean().describe('True when results were capped at the limit.'),
     shown: z.number().describe('Number of CIP codes returned.'),
     cap: z.number().describe('The limit that was applied.'),
   },
-
-  errors: [
-    {
-      reason: 'no_match',
-      code: JsonRpcErrorCode.NotFound,
-      when: 'No CIP codes matched the search query.',
-      recovery:
-        'Try a broader keyword — use the discipline name rather than a specific subdiscipline.',
-    },
-  ],
+  enrichmentTrailer: { queryContext: { render: (value) => JSON.stringify(value) } },
 
   handler(input, ctx) {
     ctx.log.info('Searching CIP codes', { query: input.query });
-    const results = searchCipCodes(input.query, input.limit);
-
-    if (results.length === 0) {
-      throw ctx.fail('no_match', `No CIP codes matched "${input.query}"`, {
-        recovery: { hint: `Try a broader term like "computer", "health", or "business".` },
-      });
-    }
-
-    ctx.enrich({ truncated: false, shown: results.length, cap: input.limit });
-    if (results.length >= input.limit) {
+    const matches = searchCipCodes(input.query, Number.POSITIVE_INFINITY);
+    const cap = Math.min(input.limit, 50);
+    const results = matches.slice(0, cap);
+    ctx.enrich({
+      truncated: false,
+      shown: results.length,
+      cap,
+      queryContext: { query: input.query, limit: cap },
+    });
+    if (!matches.length)
+      ctx.enrich.notice('No CIP codes matched. Try computer, health, or business.');
+    if (matches.length > cap) {
       ctx.enrich.truncated({
         shown: results.length,
-        cap: input.limit,
-        guidance: `CIP list capped at ${input.limit} — narrow the query or raise limit (max 50) to see more.`,
+        cap,
+        guidance: 'Narrow to a discipline such as nursing or a four-digit code such as 11.07.',
       });
     }
 
     return {
       query: input.query,
       results,
-      totalMatches: results.length,
+      totalMatches: matches.length,
     };
   },
 

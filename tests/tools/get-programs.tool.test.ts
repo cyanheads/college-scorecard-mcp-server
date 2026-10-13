@@ -120,11 +120,11 @@ describe('getProgramsTool', () => {
     });
   });
 
-  it('throws no_programs when min_earnings filter yields no results', async () => {
+  it('returns an empty collection when min_earnings filter yields no results', async () => {
     serve([csBachelors]);
-    await expect(getPrograms({ id: SCHOOL_ID, min_earnings: 999999 })).rejects.toMatchObject({
-      code: JsonRpcErrorCode.NotFound,
-      data: { reason: 'no_programs' },
+    await expect(getPrograms({ id: SCHOOL_ID, min_earnings: 999999 })).resolves.toMatchObject({
+      programs: [],
+      total: 0,
     });
   });
 
@@ -153,16 +153,17 @@ describe('getProgramsTool', () => {
     expect(dotted.content).toEqual(undotted.content);
   });
 
-  it('reports no_programs, not school_not_found, for a cip_code the school does not offer', async () => {
+  it('returns empty programs for an existing school with an unmatched CIP selector', async () => {
     serve([csBachelors, csMasters, businessBachelors]);
     const result = await runToolContract(getProgramsTool, { id: SCHOOL_ID, cip_code: '99.99' });
 
-    expect(result.isError).toBe(true);
+    expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({
-      error: { code: JsonRpcErrorCode.NotFound, data: { reason: 'no_programs' } },
+      programs: [],
+      total: 0,
     });
     const text = result.content.map((b) => (b as { text?: string }).text ?? '').join('\n');
-    expect(text).toContain(`No programs found at school ${SCHOOL_ID} matching the filters.`);
+    expect(text).toContain('No programs matched at this existing school.');
     expect(text).toContain('Remove the cip_code or credential_level filter');
     expect(text).not.toContain('No school record found');
   });

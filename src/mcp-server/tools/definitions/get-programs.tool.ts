@@ -6,6 +6,11 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import {
+  normalizeCip,
+  normalizeSchoolId,
+  SchoolIdSchema,
+} from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 import type { RawProgram } from '@/services/scorecard/types.js';
 
@@ -79,12 +84,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   input: z.object({
-    id: z
-      .union([
-        z.string().describe('School unit ID as string.'),
-        z.number().describe('School unit ID as number.'),
-      ])
-      .describe('School unit ID from scorecard_search_schools.'),
+    id: SchoolIdSchema,
     cip_code: z
       .string()
       .optional()
@@ -119,13 +119,88 @@ export const getProgramsTool = tool('scorecard_get_programs', {
   }),
 
   enrichment: {
+    query: z
+      .record(z.string(), z.unknown())
+      .describe('Normalized effective school ID and program selectors.'),
     notice: z
       .string()
       .optional()
       .describe('Guidance when no programs match the filters or all data is suppressed.'),
   },
+  enrichmentTrailer: { query: { render: (value) => JSON.stringify(value) } },
 
   errors: [
+    {
+      reason: 'api_conflict',
+      code: JsonRpcErrorCode.Conflict,
+      when: 'The provider reported a request conflict.',
+      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_invalid_params',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'Provider rejected a query parameter.',
+      recovery:
+        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_validation',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A meaningful selector or provider value is invalid.',
+      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_unauthorized',
+      code: JsonRpcErrorCode.Unauthorized,
+      when: 'The provider rejected the API credentials.',
+      recovery: 'Verify SCORECARD_API_KEY is valid and retry with valid credentials.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_forbidden',
+      code: JsonRpcErrorCode.Forbidden,
+      when: 'The provider denied access.',
+      recovery: 'Check SCORECARD_API_KEY permissions and provider access before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_rate_limited',
+      code: JsonRpcErrorCode.RateLimited,
+      when: 'The provider throttled the request.',
+      recovery: 'Wait for the provider retry window before making another request.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_timeout',
+      code: JsonRpcErrorCode.Timeout,
+      when: 'The provider exchange exceeded its deadline.',
+      recovery: 'Retry after a brief delay or narrow the requested data.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_not_found',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'The provider endpoint returned HTTP 404.',
+      recovery: 'Check provider availability and retry the request after a brief delay.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_invalid_request',
+      code: JsonRpcErrorCode.InvalidRequest,
+      when: 'The provider returned an unexpected redirect.',
+      recovery: 'Check provider availability before retrying this request with the same selectors.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_internal',
+      code: JsonRpcErrorCode.InternalError,
+      when: 'The provider returned an unclassified HTTP response.',
+      recovery: 'Retry after a brief delay and report persistent provider failures.',
+      thrownBy: 'service',
+    },
     {
       reason: 'school_not_found',
       code: JsonRpcErrorCode.NotFound,
@@ -133,21 +208,19 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       recovery: 'Verify the school ID using scorecard_search_schools and retry.',
     },
     {
-      reason: 'no_programs',
-      code: JsonRpcErrorCode.NotFound,
-      when: 'No programs matched the filters at this school.',
-      recovery: 'Remove the cip_code or min_earnings filter and retry to see all programs.',
-    },
-    {
       reason: 'api_error',
       code: JsonRpcErrorCode.ServiceUnavailable,
       when: 'The College Scorecard API returned an error.',
-      recovery: 'Check SCORECARD_API_KEY validity and retry after a brief delay.',
+      recovery: 'Retry after a brief delay and report persistent provider failures.',
       thrownBy: 'service',
     },
   ],
 
   async handler(input, ctx) {
+    input = { ...input, id: normalizeSchoolId(input.id), cip_code: normalizeCip(input.cip_code) };
+    ctx.enrich({
+      query: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
+    });
     ctx.log.info('Fetching school programs', { id: input.id, cip_code: input.cip_code });
     const service = getScorecardService();
 
@@ -214,12 +287,10 @@ export const getProgramsTool = tool('scorecard_get_programs', {
         filtered.length > 0
           ? 'Lower the min_earnings threshold or remove it to see all programs.'
           : 'Remove the cip_code or credential_level filter to see all available programs.';
-      throw ctx.fail(
-        'no_programs',
-        `No programs found at school ${input.id} matching the filters.`,
-        {
-          recovery: { hint },
-        },
+      ctx.enrich.notice(
+        rawPrograms.length
+          ? `No programs matched at this existing school. ${hint}`
+          : 'This institution has no reported programs; try another school ID from scorecard_search_schools.',
       );
     }
 

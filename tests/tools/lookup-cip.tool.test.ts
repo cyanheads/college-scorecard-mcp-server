@@ -30,10 +30,10 @@ describe('lookupCipTool', () => {
     expect(result.results.length).toBeLessThanOrEqual(3);
   });
 
-  it('throws no_match for an unknown query', () => {
+  it('returns successful empty matches for an unknown query', async () => {
     const ctx = createMockContext({ errors: lookupCipTool.errors });
     const input = lookupCipTool.input.parse({ query: 'xyzzy_nonexistent_program_9999' });
-    expect(() => lookupCipTool.handler(input, ctx)).toThrow();
+    expect(await lookupCipTool.handler(input, ctx)).toMatchObject({ results: [], totalMatches: 0 });
   });
 
   describe('enrichment on every return path', () => {

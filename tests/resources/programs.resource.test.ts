@@ -39,7 +39,7 @@ describe('programsResource', () => {
         },
       ],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: programsResource.errors });
     const params = programsResource.params!.parse({ id: '236948' });
     const result = (await programsResource.handler(params, ctx)) as Record<string, unknown>;
     expect(result.school_id).toBe(236948);
@@ -59,7 +59,7 @@ describe('programsResource', () => {
         },
       ],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: programsResource.errors });
     const params = programsResource.params!.parse({ id: '236948' });
     const result = (await programsResource.handler(params, ctx)) as Record<string, unknown>;
     const programs = result.programs as Array<Record<string, unknown>>;
@@ -77,7 +77,7 @@ describe('programsResource', () => {
         },
       ],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: programsResource.errors });
     const params = programsResource.params!.parse({ id: '236948' });
     const result = (await programsResource.handler(params, ctx)) as Record<string, unknown>;
     expect((result.programs as unknown[]).length).toBe(0);
@@ -89,7 +89,7 @@ describe('programsResource', () => {
       metadata: { total: 0, page: 0, per_page: 1 },
       results: [],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: programsResource.errors });
     const params = programsResource.params!.parse({ id: '999999' });
     await expect(programsResource.handler(params, ctx)).rejects.toThrow(McpError);
   });
@@ -119,7 +119,7 @@ describe('programsResource', () => {
         },
       ],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: programsResource.errors });
     const params = programsResource.params!.parse({
       id: String(resources[0]!.uri).split('/').pop(),
     });

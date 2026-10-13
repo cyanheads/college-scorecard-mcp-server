@@ -107,7 +107,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     category: 'identity',
   },
   {
-    path: 'school.hbcu',
+    path: 'school.minority_serving.historically_black',
     description: 'Historically Black College or University flag',
     type: 'integer',
     sortable: false,

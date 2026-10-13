@@ -40,7 +40,7 @@ describe('schoolResource', () => {
         },
       ],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: schoolResource.errors });
     const params = schoolResource.params!.parse({ id: '236948' });
     const result = await schoolResource.handler(params, ctx);
     expect(result).toMatchObject({
@@ -56,7 +56,7 @@ describe('schoolResource', () => {
       metadata: { total: 0, page: 0, per_page: 1 },
       results: [],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: schoolResource.errors });
     const params = schoolResource.params!.parse({ id: '999999' });
     await expect(schoolResource.handler(params, ctx)).rejects.toThrow(McpError);
   });
@@ -79,7 +79,7 @@ describe('schoolResource', () => {
         },
       ],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: schoolResource.errors });
     const params = schoolResource.params!.parse({ id: '999' });
     const result = await schoolResource.handler(params, ctx);
     expect(result).toMatchObject({ id: 999, name: 'Sparse College' });
@@ -111,7 +111,7 @@ describe('schoolResource', () => {
         },
       ],
     });
-    const ctx = createMockContext({ tenantId: 'test-tenant' });
+    const ctx = createMockContext({ tenantId: 'test-tenant', errors: schoolResource.errors });
     const params = schoolResource.params!.parse({
       id: String(resources[0]!.uri).split('/').pop(),
     });

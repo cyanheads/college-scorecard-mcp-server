@@ -5,18 +5,18 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
-import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { searchFieldCatalog } from '@/data/field-catalog.js';
 
 export const listFieldsTool = tool('scorecard_list_fields', {
   title: 'List Scorecard Fields',
   description:
-    'Search the College Scorecard field catalog by keyword. Returns matching field paths, descriptions, data types, and whether each field supports API-side sorting. Use before passing custom field paths to the fields parameter on scorecard_search_schools or scorecard_get_school to verify a path is valid. Served entirely from embedded static data — no API call, no rate limit impact.',
+    'Search the College Scorecard field catalog by keyword. Returns matching field paths, descriptions, data types, and whether each field supports API-side sorting. Use before passing custom field paths to the fields parameter on scorecard_get_school to find a supported path. Served entirely from embedded static data — no API call, no rate limit impact.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
 
   input: z.object({
     query: z
       .string()
+      .trim()
       .min(1)
       .describe(
         'Keyword to search the field catalog (e.g. "tuition", "earnings", "admissions", "debt"). Matches against field paths, descriptions, and category names.',
@@ -25,9 +25,9 @@ export const listFieldsTool = tool('scorecard_list_fields', {
       .number()
       .int()
       .min(1)
-      .max(100)
+      .max(1000)
       .default(30)
-      .describe('Maximum number of matching fields to return.'),
+      .describe('Requested limit; serving cap 100, hard ceiling 1,000.'),
   }),
 
   output: z.object({
@@ -52,36 +52,37 @@ export const listFieldsTool = tool('scorecard_list_fields', {
   }),
 
   enrichment: {
+    notice: z.string().optional().describe('No-match guidance.'),
+    guidance: z.string().optional().describe('Concrete narrowing guidance when matches remain.'),
+    queryContext: z
+      .object({
+        query: z.string().describe('Normalized query.'),
+        limit: z.number().describe('Applied limit.'),
+      })
+      .describe('Effective selectors.'),
     truncated: z.boolean().describe('True when results were capped at the limit.'),
     shown: z.number().describe('Number of fields returned.'),
     cap: z.number().describe('The limit that was applied.'),
   },
-
-  errors: [
-    {
-      reason: 'no_match',
-      code: JsonRpcErrorCode.NotFound,
-      when: 'No fields matched the search query.',
-      recovery: 'Try a broader category keyword like "cost", "earnings", "admissions", or "aid".',
-    },
-  ],
+  enrichmentTrailer: { queryContext: { render: (value) => JSON.stringify(value) } },
 
   handler(input, ctx) {
     ctx.log.info('Searching field catalog', { query: input.query });
-    const results = searchFieldCatalog(input.query, input.limit);
-
-    if (results.length === 0) {
-      throw ctx.fail('no_match', `No fields matched "${input.query}"`, {
-        recovery: { hint: `Try broader terms like "cost", "earnings", "aid", or "admissions".` },
-      });
-    }
-
-    ctx.enrich({ truncated: false, shown: results.length, cap: input.limit });
-    if (results.length >= input.limit) {
+    const matches = searchFieldCatalog(input.query, Number.POSITIVE_INFINITY);
+    const cap = Math.min(input.limit, 100);
+    const results = matches.slice(0, cap);
+    ctx.enrich({
+      truncated: false,
+      shown: results.length,
+      cap,
+      queryContext: { query: input.query, limit: cap },
+    });
+    if (!matches.length) ctx.enrich.notice('No fields matched. Try cost, earnings, or admissions.');
+    if (matches.length > cap) {
       ctx.enrich.truncated({
         shown: results.length,
-        cap: input.limit,
-        guidance: `Field list capped at ${input.limit} — narrow the query or raise limit (max 100) to see more.`,
+        cap,
+        guidance: 'Narrow to a field path or category such as latest.cost.tuition or admissions.',
       });
     }
 
@@ -99,7 +100,7 @@ export const listFieldsTool = tool('scorecard_list_fields', {
         sortable: r.sortable,
         category: r.category,
       })),
-      totalMatches: results.length,
+      totalMatches: matches.length,
       ...(tip && { tip }),
     };
   },

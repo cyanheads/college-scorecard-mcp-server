@@ -25,7 +25,7 @@ const makeProfileResult = (overrides: Record<string, unknown> = {}) => ({
       'school.school_url': 'www.washington.edu',
       'school.ownership': 1,
       'school.degrees_awarded.predominant': 3,
-      'school.hbcu': 0,
+      'school.minority_serving.historically_black': 0,
       'latest.student.size': 47000,
       'latest.admissions.admission_rate.overall': 0.52,
       'latest.cost.tuition.in_state': 11839,

@@ -6,10 +6,22 @@
 
 import type { Context } from '@cyanheads/mcp-ts-core';
 import type { AppConfig } from '@cyanheads/mcp-ts-core/config';
-import { serviceUnavailable, validationError } from '@cyanheads/mcp-ts-core/errors';
+import {
+  JsonRpcErrorCode,
+  McpError,
+  serviceUnavailable,
+  validationError,
+} from '@cyanheads/mcp-ts-core/errors';
 import type { StorageService } from '@cyanheads/mcp-ts-core/storage';
-import { withRetry } from '@cyanheads/mcp-ts-core/utils';
+import { fetchWithTimeout, httpErrorFromResponse, withRetry } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
+import {
+  meaningfulText,
+  normalizeCip,
+  normalizeSchoolId,
+  normalizeSearchOptions,
+  normalizeState,
+} from './input-normalization.js';
 import type { ScorecardApiResponse, ScorecardSearchOptions } from './types.js';
 
 const BASE_URL = 'https://api.data.gov/ed/collegescorecard/v1/schools';
@@ -43,7 +55,7 @@ const PROFILE_DEFAULT_FIELDS = [
   'school.carnegie_basic',
   'school.locale',
   'school.degrees_awarded.predominant',
-  'school.hbcu',
+  'school.minority_serving.historically_black',
   'school.men_only',
   'school.women_only',
   'latest.student.size',
@@ -122,43 +134,19 @@ export class ScorecardService {
 
   /**
    * Fetch from the API with retry and error classification. Every upstream
-   * failure carries the `api_error` reason the calling tools declare, plus that
-   * contract's recovery hint.
+   * failure carries a stable reason for its wire code and the caller's declared recovery.
    */
   private fetchApi(
     params: Record<string, string | number | undefined>,
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
     const url = this.buildUrl(params);
-    ctx.log.debug('Fetching Scorecard API', { path: url.replace(/api_key=[^&]+/, 'api_key=***') });
+    ctx.log.debug('Fetching Scorecard API', { endpoint: BASE_URL });
     const apiError = { reason: 'api_error', ...ctx.recoveryFor('api_error') };
 
     return withRetry(
       async () => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 30_000);
-        const signal = ctx.signal
-          ? AbortSignal.any([ctx.signal, controller.signal])
-          : controller.signal;
-        let response: Response;
-        try {
-          response = await fetch(url, { signal });
-        } finally {
-          clearTimeout(timer);
-        }
-        if (!response.ok) {
-          const status = response.status;
-          if (status === 429)
-            throw serviceUnavailable(`Scorecard API rate limit exceeded (HTTP 429).`, apiError);
-          if (status === 403 || status === 401)
-            throw serviceUnavailable(
-              `Scorecard API key rejected (HTTP ${status}) — verify SCORECARD_API_KEY.`,
-              { ...apiError, retryable: false },
-            );
-          if (status >= 500)
-            throw serviceUnavailable(`Scorecard API unavailable (HTTP ${status}).`, apiError);
-          throw serviceUnavailable(`Scorecard API returned HTTP ${status}.`, apiError);
-        }
+        const response = await fetchWithTimeout(url, 30_000, ctx, { signal: ctx.signal });
         const text = await response.text();
 
         // Detect HTML error pages
@@ -173,12 +161,11 @@ export class ScorecardService {
         try {
           body = JSON.parse(text);
         } catch {
-          throw serviceUnavailable('Scorecard API returned non-JSON response.', {
-            ...apiError,
-            body: text.slice(0, 200),
-          });
+          throw serviceUnavailable('Scorecard API returned non-JSON response.', apiError);
         }
 
+        if (body === null || typeof body !== 'object' || Array.isArray(body))
+          throw serviceUnavailable('Scorecard API returned unexpected response shape.', apiError);
         const data = body as Record<string, unknown>;
 
         // Check for API-level errors
@@ -193,12 +180,14 @@ export class ScorecardService {
             'Scorecard API returned an error.';
           const code = apiErr.error?.code ?? apiErr.errors?.[0]?.error;
           if (code === 'API_KEY_MISSING' || code === 'API_KEY_INVALID') {
-            throw serviceUnavailable(
-              `Scorecard API key error: ${msg} — verify SCORECARD_API_KEY is valid.`,
-              { ...apiError, retryable: false },
-            );
+            throw await httpErrorFromResponse(new Response(this.safeDetail(msg), { status: 401 }), {
+              service: 'Scorecard API',
+            });
           }
-          throw serviceUnavailable(`Scorecard API error: ${msg}`, { ...apiError, code });
+          throw serviceUnavailable(`Scorecard API error: ${this.safeDetail(msg)}`, {
+            ...apiError,
+            code,
+          });
         }
 
         if (!data.results || !data.metadata) {
@@ -215,11 +204,58 @@ export class ScorecardService {
         baseDelayMs: 1000,
         signal: ctx.signal,
       },
-    );
+    ).catch((error: unknown) => {
+      if (!(error instanceof McpError) || error.code === JsonRpcErrorCode.RequestCancelled)
+        throw error;
+      const reasons: Partial<Record<JsonRpcErrorCode, string>> = {
+        [JsonRpcErrorCode.InvalidParams]: 'api_invalid_params',
+        [JsonRpcErrorCode.ValidationError]: 'api_validation',
+        [JsonRpcErrorCode.Unauthorized]: 'api_unauthorized',
+        [JsonRpcErrorCode.Forbidden]: 'api_forbidden',
+        [JsonRpcErrorCode.Conflict]: 'api_conflict',
+        [JsonRpcErrorCode.RateLimited]: 'api_rate_limited',
+        [JsonRpcErrorCode.Timeout]: 'api_timeout',
+        [JsonRpcErrorCode.ServiceUnavailable]: 'api_error',
+        [JsonRpcErrorCode.NotFound]: 'api_not_found',
+        [JsonRpcErrorCode.InvalidRequest]: 'api_invalid_request',
+        [JsonRpcErrorCode.InternalError]: 'api_internal',
+      };
+      const reason = reasons[error.code];
+      const data: Record<string, unknown> = {
+        ...error.data,
+        ...(reason && { reason, ...ctx.recoveryFor(reason) }),
+      };
+      if (
+        [
+          JsonRpcErrorCode.InvalidParams,
+          JsonRpcErrorCode.ValidationError,
+          JsonRpcErrorCode.Unauthorized,
+          JsonRpcErrorCode.Forbidden,
+        ].includes(error.code)
+      )
+        data.retryable = false;
+      for (const key of ['body', 'responseBody', 'code', 'statusText'])
+        if (typeof data[key] === 'string') data[key] = this.safeDetail(data[key]);
+      const message = data.status
+        ? `Scorecard API returned HTTP ${data.status}.${data.body ? ` ${data.body}` : ''}`
+        : this.safeDetail(error.message);
+      throw new McpError(error.code, message, data);
+    });
+  }
+
+  /** Provider diagnostics are useful; credentials and credential-bearing URLs are not. */
+  private safeDetail(text: string): string {
+    return text
+      .replaceAll(this.apiKey, '[redacted]')
+      .replaceAll(encodeURIComponent(this.apiKey), '[redacted]')
+      .replace(/https?:\/\/[^\s"<>]+/gi, '[provider URL]')
+      .replace(/(api[_-]?key|token|authorization)\s*[=:]\s*[^\s,;]+/gi, '$1=[redacted]')
+      .slice(0, 500);
   }
 
   /** Search schools with filter params */
   searchSchools(options: ScorecardSearchOptions, ctx: Context): Promise<ScorecardApiResponse> {
+    options = normalizeSearchOptions(options);
     const params: Record<string, string | number | undefined> = {
       fields: options.fields ?? SEARCH_DEFAULT_FIELDS,
       per_page: options.perPage ?? 20,
@@ -261,12 +297,27 @@ export class ScorecardService {
     fields: string | undefined,
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
-    if (ids.length === 0) throw validationError('No school IDs provided.');
+    if (ids.length === 0)
+      throw validationError('No school IDs provided.', {
+        reason: 'api_validation',
+        ...ctx.recoveryFor('api_validation'),
+      });
+    if (ids.length > 1000)
+      throw validationError('Provide at most 1,000 school IDs per request.', {
+        reason: 'api_validation',
+      });
+    const processed = [...new Set(ids.map(normalizeSchoolId))].slice(0, 100);
+    const selected = meaningfulText(fields)
+      ?.split(',')
+      .map((field) => field.trim())
+      .filter(Boolean);
 
     const params: Record<string, string | number | undefined> = {
-      id: ids.join(','),
-      fields: fields ?? PROFILE_DEFAULT_FIELDS,
-      per_page: Math.min(ids.length, 100),
+      id: processed.join(','),
+      fields: selected?.length
+        ? [...new Set(['id', 'school.name', ...selected])].join(',')
+        : PROFILE_DEFAULT_FIELDS,
+      per_page: processed.length,
     };
 
     return this.fetchApi(params, ctx);
@@ -284,6 +335,8 @@ export class ScorecardService {
     _credentialLevel: number | undefined,
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
+    id = normalizeSchoolId(id);
+    normalizeCip(_cipCode);
     const params: Record<string, string | number | undefined> = {
       id: String(id),
       fields: PROGRAMS_DEFAULT_FIELDS,
@@ -299,6 +352,7 @@ export class ScorecardService {
     years: number[],
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
+    id = normalizeSchoolId(id);
     const yearFields =
       years.length > 0
         ? years
@@ -321,9 +375,9 @@ export class ScorecardService {
   /** Search programs across schools */
   searchPrograms(
     options: {
-      cipCode?: string;
+      cipCode?: string | undefined;
       programName?: string;
-      state?: string;
+      state?: string | undefined;
       ownership?: number;
       maxNetPrice?: number;
       maxDebt?: number;
@@ -332,6 +386,11 @@ export class ScorecardService {
     },
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
+    options = {
+      ...options,
+      state: normalizeState(options.state),
+      cipCode: normalizeCip(options.cipCode),
+    };
     const params: Record<string, string | number | undefined> = {
       fields: [
         'id',
@@ -364,6 +423,7 @@ export class ScorecardService {
     id: string | number,
     ctx: Context,
   ): Promise<[ScorecardApiResponse, ScorecardApiResponse]> {
+    id = normalizeSchoolId(id);
     const costFields = [
       'id',
       'school.name',
@@ -408,6 +468,12 @@ export class ScorecardService {
     topic: 'costs' | 'admissions' | 'outcomes' | 'aid',
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
+    if (ids.length === 0)
+      throw validationError('No school IDs provided.', {
+        reason: 'api_validation',
+        ...ctx.recoveryFor('api_validation'),
+      });
+    ids = [...new Set(ids.map(normalizeSchoolId))];
     const topicFields: Record<string, string> = {
       costs: [
         'id',

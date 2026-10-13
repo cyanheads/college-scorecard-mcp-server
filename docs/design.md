@@ -51,8 +51,8 @@ Target users: agents helping with college research, financial planning, career e
 - Earnings data uses the `latest.*` shorthand for most recent cohort; individual year fields available for trend queries
 - Some fields are sparsely populated (null is common — especially earnings at selective schools with small cohorts, due to FERPA suppression; surfaced as structured `suppressed: true` flag, not bare null)
 - School sorting forwards indexed API fields; program search orders the fetched page locally by earnings
-- Batch ID lookup supported via comma-separated `id` param (up to 100 per page)
-- Geographic filtering available via `zip` + `distance` (miles/km), U.S. zip codes only
+- Batch ID lookup normalizes and deduplicates up to 1,000 raw elements, fetches the first 100 distinct IDs, and reports missing processed IDs separately from unchecked excess
+- Geographic filtering accepts ZIP-only provider defaults, ZIP+4, and nonnegative bare/mi/km decimal radii; a meaningful distance requires ZIP
 - Programs returned as nested array under school record; filtering by CIP code returns only matching programs unless `all_programs_nested=true` is passed
 - `scorecard_lookup_cip` is served from an embedded CIP code taxonomy (static data, no API call required)
 - `scorecard_list_fields` is served from an embedded field catalog derived from the data dictionary (static data, no API call required)
@@ -137,7 +137,7 @@ Calls 1 and 2 run in parallel via `Promise.all`, each restricted to the requeste
 
 ### `scorecard_compare_schools`
 
-Returns structured comparison rows, not raw profiles. The value over `get_school` with multiple IDs is the normalization: percentile ranks within the result set and relative deltas, which let a caller see "School A is in the 75th percentile for net price among these 4 schools" rather than having to compute that from raw numbers.
+Returns structured comparison rows with metric values and ordinal ranks within the result set, plus a comparison summary. The ranks place each school's values within the selected group.
 
 | # | Call | Purpose |
 |:--|:-----|:--------|
@@ -165,6 +165,18 @@ Tools default to `latest.*` (most recent available cohort per field) for all cur
 ### Field pre-selection strategy
 
 Each tool selects fields for its purpose, including institution earnings percentiles where available. `scorecard_get_school` exposes a `fields` override; the search tools use their fixed field sets. `scorecard_list_fields` supplies the field paths and descriptions for that override.
+
+Custom school projections always fetch `id` and `school.name`, then return the requested values in `selected_fields` and response omissions in `absent_fields`. Nested program leaves retain the returned ancestor subtree under its provider key, preserving sparse elements and array alignment rather than inventing nulls or dropping rows. This preserves arbitrary JSON and distinguishes explicit null from absence without inventing unavailable unrequested metrics. Default profiles retain the curated mapper, including `school.minority_serving.historically_black` as a true/false/unknown flag.
+
+### Input normalization and classified failures
+
+Required IDs are positive safe integers. Base-10 strings accept whitespace, leading zeros, plus, decimal, and exponent forms only when they resolve to a positive safe integer; hexadecimal, nonfinite, fractional, zero, negative, and unsafe values are rejected. An empty profile batch retains semantic ValidationError with zero requests. State lists/case, four-digit CIP dots, sort direction case, and reversed range endpoints normalize without dropping meaningful filters. Optional blanks are unset; required catalog queries are nonblank. Each search echoes effective selectors in a replayable shape, including defaults and excluding selectors ignored by precedence.
+
+`fetchWithTimeout` bounds the complete exchange, including the body, and composes caller cancellation; `withRetry` retains classified transient failures. HTTP 400/422 validation and 401/403 authentication fail once, while throttling, deadlines, and availability use distinct reasons and retry policy. Safe provider diagnostics survive; credentials and credential-bearing URLs do not. Each API consumer declares its own inline reason/recovery contracts; resource factories attach recovery and request correlation without changing successful sparse JSON.
+
+### Empty collections and caps
+
+Catalog totals are counted before slicing at serving caps (fields 100, CIP 50), with a 1,000 requested-limit ceiling. Exact-cap results are untruncated; overflow includes concrete narrowing selectors. Valid no-match catalog and per-school program queries succeed with empty collections. Missing institutions remain lookup errors. Search notices distinguish no upstream matches, exhausted pages, and populated pages emptied by local program filtering; school totals and continuation remain independent of flattened rows.
 
 ### `scorecard_search_programs` vs. `scorecard_get_programs`
 
@@ -283,6 +295,8 @@ When filtering with `latest.programs.cip_4_digit.code=1107`, only matching progr
 ```
 
 Error response: `{ "error": { "code": "...", "message": "..." } }`. Field-level errors: `{ "errors": [{ "error": "field_not_found", "input": "...", "message": "..." }] }`.
+
+Provider HTTP 409 uses `api_conflict` on tools and resources. Tools retain Conflict (-32002); resource contracts declare InvalidParams (-32602), because the installed SDK wire codec remaps top-level -32002 errors. The reason, provider status, recovery, and request ID remain available.
 
 ### Rate Limits
 

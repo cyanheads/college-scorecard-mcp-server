@@ -7,12 +7,13 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { degreeLevelLabel, ownershipLabel } from '@/mcp-server/format-helpers.js';
+import { normalizeSearchOptions } from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 export const searchSchoolsTool = tool('scorecard_search_schools', {
   title: 'Search Schools',
   description:
-    'Search and filter U.S. colleges and universities by name, location, type, size, and acceptance rate. Returns a list with core identity and cost metrics for each match. For a full institutional profile use scorecard_get_school; for cross-institution program rankings use scorecard_search_programs. Geographic filtering requires a U.S. zip code and a distance string (e.g. "50mi"). State filter uses two-letter codes (e.g. "WA", "CA"). Ownership: 1=public, 2=private nonprofit, 3=for-profit. Degree level: 0=non-degree, 1=certificate, 2=associate, 3=bachelor, 4=graduate.',
+    'Search and filter U.S. colleges and universities by name, location, type, size, and acceptance rate. Returns core identity and cost metrics. Use scorecard_get_school for profiles or scorecard_search_programs for program rankings. Geographic distance requires a U.S. ZIP; ZIP alone uses the provider default radius. State accepts comma-separated two-letter codes (e.g. WA,CA). Ownership: 1=public, 2=private nonprofit, 3=for-profit. Degree level: 0=non-degree, 1=certificate, 2=associate, 3=bachelor, 4=graduate.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
@@ -22,9 +23,10 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       .describe('School name search — partial or full name; all words must appear.'),
     state: z
       .string()
-      .length(2)
       .optional()
-      .describe('Filter to schools in this state (two-letter code, e.g. "WA").'),
+      .describe(
+        'Comma-separated two-letter state codes; case and whitespace normalized, blanks unset.',
+      ),
     ownership: z
       .number()
       .int()
@@ -66,11 +68,15 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
     zip: z
       .string()
       .optional()
-      .describe('U.S. zip code for geographic center. Requires distance to be set.'),
+      .describe(
+        'Five-digit U.S. ZIP or ZIP+4. Alone uses the provider default radius; blank is unset.',
+      ),
     distance: z
       .string()
       .optional()
-      .describe('Search radius around zip (e.g. "25mi", "50km"). Requires zip to be set.'),
+      .describe(
+        'Nonnegative radius: bare miles, mi, or km, including decimals. Requires meaningful zip.',
+      ),
     cip_code: z
       .string()
       .optional()
@@ -138,6 +144,9 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
   }),
 
   enrichment: {
+    query: z
+      .record(z.string(), z.unknown())
+      .describe('Normalized effective selectors and pagination defaults.'),
     totalCount: z.number().describe('Total institutions matching the filters, before pagination.'),
     truncated: z
       .boolean()
@@ -151,13 +160,85 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
         'Recovery hint when results are empty — echoes applied filters and suggests how to broaden.',
       ),
   },
+  enrichmentTrailer: { query: { render: (value) => JSON.stringify(value) } },
 
   errors: [
+    {
+      reason: 'api_conflict',
+      code: JsonRpcErrorCode.Conflict,
+      when: 'The provider reported a request conflict.',
+      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_invalid_params',
+      code: JsonRpcErrorCode.InvalidParams,
+      when: 'Provider rejected a query parameter.',
+      recovery:
+        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_validation',
+      code: JsonRpcErrorCode.ValidationError,
+      when: 'A meaningful selector or provider value is invalid.',
+      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_unauthorized',
+      code: JsonRpcErrorCode.Unauthorized,
+      when: 'The provider rejected the API credentials.',
+      recovery: 'Verify SCORECARD_API_KEY is valid and retry with valid credentials.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_forbidden',
+      code: JsonRpcErrorCode.Forbidden,
+      when: 'The provider denied access.',
+      recovery: 'Check SCORECARD_API_KEY permissions and provider access before retrying.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_rate_limited',
+      code: JsonRpcErrorCode.RateLimited,
+      when: 'The provider throttled the request.',
+      recovery: 'Wait for the provider retry window before making another request.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_timeout',
+      code: JsonRpcErrorCode.Timeout,
+      when: 'The provider exchange exceeded its deadline.',
+      recovery: 'Retry after a brief delay or narrow the requested data.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_not_found',
+      code: JsonRpcErrorCode.NotFound,
+      when: 'The provider endpoint returned HTTP 404.',
+      recovery: 'Check provider availability and retry the request after a brief delay.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_invalid_request',
+      code: JsonRpcErrorCode.InvalidRequest,
+      when: 'The provider returned an unexpected redirect.',
+      recovery: 'Check provider availability before retrying this request with the same selectors.',
+      thrownBy: 'service',
+    },
+    {
+      reason: 'api_internal',
+      code: JsonRpcErrorCode.InternalError,
+      when: 'The provider returned an unclassified HTTP response.',
+      recovery: 'Retry after a brief delay and report persistent provider failures.',
+      thrownBy: 'service',
+    },
     {
       reason: 'api_error',
       code: JsonRpcErrorCode.ServiceUnavailable,
       when: 'The College Scorecard API returned an error.',
-      recovery: 'Check SCORECARD_API_KEY validity and retry after a brief delay.',
+      recovery: 'Retry after a brief delay and report persistent provider failures.',
       thrownBy: 'service',
     },
   ],
@@ -176,25 +257,46 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
         ? ([input.acceptance_rate_range.min, input.acceptance_rate_range.max] as [number, number])
         : undefined;
 
-    const response = await service.searchSchools(
-      {
-        ...(input.query && { name: input.query }),
-        ...(input.state && { state: input.state }),
-        ...(input.ownership != null && { ownership: input.ownership }),
-        ...(input.degree_level != null && { degreeLevel: input.degree_level }),
-        ...(sizeRange && { sizeRange }),
-        ...(acceptanceRateRange && { acceptanceRateRange }),
-        ...(input.zip && { zip: input.zip }),
-        ...(input.distance && { distance: input.distance }),
-        ...(input.cip_code && { cipCode: input.cip_code }),
-        ...(input.sort && { sort: input.sort }),
-        ...(input.men_only != null && { menOnly: input.men_only }),
-        ...(input.women_only != null && { womenOnly: input.women_only }),
-        perPage: input.per_page,
-        page: input.page,
-      },
-      ctx,
-    );
+    const options = normalizeSearchOptions({
+      ...(input.query && { name: input.query }),
+      ...(input.state && { state: input.state }),
+      ...(input.ownership != null && { ownership: input.ownership }),
+      ...(input.degree_level != null && { degreeLevel: input.degree_level }),
+      ...(sizeRange && { sizeRange }),
+      ...(acceptanceRateRange && { acceptanceRateRange }),
+      ...(input.zip && { zip: input.zip }),
+      ...(input.distance && { distance: input.distance }),
+      ...(input.cip_code && { cipCode: input.cip_code }),
+      ...(input.sort && { sort: input.sort }),
+      ...(input.men_only != null && { menOnly: input.men_only }),
+      ...(input.women_only != null && { womenOnly: input.women_only }),
+      perPage: input.per_page,
+      page: input.page,
+    });
+    ctx.enrich({
+      query: Object.fromEntries(
+        Object.entries({
+          query: options.name,
+          state: options.state,
+          ownership: options.ownership,
+          degree_level: options.degreeLevel,
+          size_range: options.sizeRange && { min: options.sizeRange[0], max: options.sizeRange[1] },
+          acceptance_rate_range: options.acceptanceRateRange && {
+            min: options.acceptanceRateRange[0],
+            max: options.acceptanceRateRange[1],
+          },
+          zip: options.zip,
+          distance: options.distance,
+          cip_code: options.cipCode,
+          sort: options.sort,
+          men_only: options.menOnly,
+          women_only: options.womenOnly,
+          page: options.page,
+          per_page: options.perPage,
+        }).filter(([, value]) => value !== undefined),
+      ),
+    });
+    const response = await service.searchSchools(options, ctx);
 
     const schools = response.results.map((r) => ({
       id: r.id ?? 0,
@@ -230,7 +332,9 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
     ctx.enrich({ truncated, shown: schools.length, cap: per_page });
     if (schools.length === 0) {
       ctx.enrich.notice(
-        `No schools matched the applied filters. Try removing state, size, or acceptance rate filters.`,
+        total > 0
+          ? `This school page is exhausted. Valid page range: 0–${Math.ceil(total / per_page) - 1}.`
+          : 'No schools matched the applied filters. Try removing state, size, or acceptance rate filters.',
       );
     } else if (truncated) {
       ctx.enrich.notice(
