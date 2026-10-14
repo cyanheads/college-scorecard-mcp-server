@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.4.0](changelog/0.4.x/0.4.0.md) — 2026-10-14 · ⚠️ Breaking
+
+Correct Scorecard earnings, availability, and program comparisons.
+
 ## [0.3.0](changelog/0.3.x/0.3.0.md) — 2026-10-13 · ⚠️ Breaking
 
 Preserve requested profile data and classify Scorecard failures with actionable recovery.
