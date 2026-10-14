@@ -53,6 +53,12 @@
           "value": "http"
         },
         {
+          "name": "SCORECARD_API_KEY",
+          "description": "Required API key for the College Scorecard API. Free registration at https://api.data.gov/signup/. Rate limit: 1,000 requests/hour.",
+          "format": "string",
+          "isRequired": true
+        },
+        {
           "name": "MCP_HTTP_HOST",
           "description": "The hostname for the HTTP server.",
           "format": "string",
