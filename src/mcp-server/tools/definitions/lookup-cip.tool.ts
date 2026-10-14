@@ -63,6 +63,12 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
   enrichmentTrailer: { queryContext: { render: (value) => JSON.stringify(value) } },
 
   handler(input, ctx) {
+    input = {
+      ...input,
+      query: /^\d{4}$/.test(input.query)
+        ? `${input.query.slice(0, 2)}.${input.query.slice(2)}`
+        : input.query,
+    };
     ctx.log.info('Searching CIP codes', { query: input.query });
     const matches = searchCipCodes(input.query, Number.POSITIVE_INFINITY);
     const cap = Math.min(input.limit, 50);

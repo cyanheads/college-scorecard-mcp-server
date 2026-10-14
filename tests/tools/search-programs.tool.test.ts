@@ -37,6 +37,85 @@ const makeResponse = (records = [makeProgramRecord()]) => ({
 });
 
 describe('searchProgramsTool', () => {
+  it.each([5, 99, 123])(
+    'echoes credential selector %i on a successful empty page',
+    async (credential_level) => {
+      mockSearchPrograms.mockResolvedValue(makeResponse([]));
+      const result = await runToolContract(searchProgramsTool, { credential_level });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        programs: [],
+        total: 0,
+        query: { credential_level },
+      });
+      expect(mockSearchPrograms.mock.calls[0]![0]).toMatchObject({
+        credentialLevel: credential_level,
+      });
+      expect(
+        result.content.map((block) => (block as { text?: string }).text ?? '').join('\n'),
+      ).toContain(`"credential_level":${credential_level}`);
+    },
+  );
+  it('rejects noninteger credential input before calling the service', async () => {
+    const result = await runToolContract(searchProgramsTool, { credential_level: 3.5 });
+    expect(result.isError).toBe(true);
+    expect(mockSearchPrograms).not.toHaveBeenCalled();
+  });
+  it('filters CIP and credential together and retains degree identity', async () => {
+    const rows = [
+      { code: '1107', credential: { level: 3, title: "Bachelor's Degree" } },
+      { code: '1107', credential: { level: 5, title: "Master's Degree" } },
+      { code: '5202', credential: { level: 3, title: "Bachelor's Degree" } },
+    ];
+    mockSearchPrograms.mockResolvedValue(
+      makeResponse([makeProgramRecord({ 'latest.programs.cip_4_digit': rows })]),
+    );
+    const result = await runToolContract(searchProgramsTool, {
+      cip_code: '11.07',
+      credential_level: 3,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      programs: [
+        { program_code: '1107', credential_level: 3, credential_title: "Bachelor's Degree" },
+      ],
+      total_programs: 1,
+      query: { credential_level: 3 },
+    });
+    expect(mockSearchPrograms.mock.calls[0]![0]).toMatchObject({
+      cipCode: '1107',
+      credentialLevel: 3,
+    });
+    expect(
+      result.content.map((block) => (block as { text?: string }).text ?? '').join('\n'),
+    ).toContain("Bachelor's Degree");
+  });
+  it('retains separate unknown and missing credential identities without a selector', async () => {
+    mockSearchPrograms.mockResolvedValue(
+      makeResponse([
+        makeProgramRecord({
+          'latest.programs.cip_4_digit': [
+            { code: '1107', credential: { level: 123, title: 'Future credential' } },
+            { code: '1107' },
+          ],
+        }),
+      ]),
+    );
+    const result = await runToolContract(searchProgramsTool, {});
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      total_programs: 2,
+      programs: [
+        { credential_level: 123, credential_title: 'Future credential' },
+        { program_code: '1107' },
+      ],
+    });
+    const programs = (result.structuredContent as { programs: Record<string, unknown>[] }).programs;
+    expect(programs[1]).not.toHaveProperty('credential_level');
+    expect(programs[1]).not.toHaveProperty('credential_title');
+    const text = result.content.map((block) => (block as { text?: string }).text ?? '').join('\n');
+    expect(text).toContain('Credential: Future credential (level 123)');
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -53,7 +132,7 @@ describe('searchProgramsTool', () => {
     expect(result.programs[0]!.suppressed).toBe(false);
   });
 
-  it('marks programs as suppressed when earnings are null', async () => {
+  it('marks null earnings unavailable without inventing suppression', async () => {
     mockSearchPrograms.mockResolvedValue(
       makeResponse([
         makeProgramRecord({
@@ -71,8 +150,10 @@ describe('searchProgramsTool', () => {
     const ctx = createMockContext({ errors: searchProgramsTool.errors });
     const input = searchProgramsTool.input.parse({ cip_code: '51.38' });
     const result = await searchProgramsTool.handler(input, ctx);
-    expect(result.programs[0]!.suppressed).toBe(true);
-    expect(result.suppressed_count).toBe(1);
+    expect(result.programs[0]!.suppressed).toBe(false);
+    expect(result.programs[0]!.earnings_availability).toBe('unavailable');
+    expect(result.suppressed_count).toBe(0);
+    expect(result.unavailable_count).toBe(1);
   });
 
   it('enriches a notice when no programs match', async () => {
@@ -183,7 +264,8 @@ describe('searchProgramsTool', () => {
     const result = await searchProgramsTool.handler(input, ctx);
     expect(result.programs[0]!.earnings_1yr_median).toBeUndefined();
     expect(result.programs[0]!.net_price_overall).toBeUndefined();
-    expect(result.programs[0]!.suppressed).toBe(true);
+    expect(result.programs[0]!.suppressed).toBe(false);
+    expect(result.programs[0]!.earnings_availability).toBe('unavailable');
   });
 
   it('formats output with school info and earnings', () => {
@@ -205,10 +287,12 @@ describe('searchProgramsTool', () => {
           ipeds_awards_year1: 400,
           ipeds_awards_year2: 410,
           suppressed: false,
+          earnings_availability: 'available' as const,
         },
       ],
       total_programs: 1,
       suppressed_count: 0,
+      unavailable_count: 0,
     };
     const blocks = searchProgramsTool.format!(output);
     expect(blocks[0]!.type).toBe('text');

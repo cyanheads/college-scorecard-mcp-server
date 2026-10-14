@@ -12,6 +12,7 @@ import {
   normalizeCip,
   normalizeState,
 } from '@/services/scorecard/input-normalization.js';
+import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 const ProgramResultSchema = z.object({
@@ -22,6 +23,12 @@ const ProgramResultSchema = z.object({
   net_price_overall: z.number().optional().describe('Average net price at this school.'),
   program_code: z.string().describe('4-digit CIP program code.'),
   program_title: z.string().optional().describe('Program title.'),
+  credential_level: z
+    .number()
+    .int()
+    .optional()
+    .describe('Provider credential level; unknown future numeric levels are retained.'),
+  credential_title: z.string().optional().describe('Provider credential title, when reported.'),
   earnings_1yr_median: z
     .number()
     .optional()
@@ -46,7 +53,10 @@ const ProgramResultSchema = z.object({
     .describe(
       'IPEDS awards in year 2 of the pooled debt cohort; awards, not enrollment or unique students.',
     ),
-  suppressed: z.boolean().describe('True when earnings are suppressed due to small cohort.'),
+  suppressed: z.boolean().describe('True only for explicit provider privacy markers.'),
+  earnings_availability: MetricAvailabilitySchema.describe(
+    'Available number, unavailable with unknown cause, or confirmed privacy suppression.',
+  ),
 });
 
 export const searchProgramsTool = tool('scorecard_search_programs', {
@@ -56,6 +66,13 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
+    credential_level: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        'Provider credential selector: 1=undergraduate certificate, 2=associate, 3=bachelor, 4=post-baccalaureate certificate, 5=master, 6=doctoral, 7=first professional, 8=graduate/professional certificate, 99=non-credential; other integer levels may return no matches.',
+      ),
     cip_code: z
       .string()
       .optional()
@@ -115,10 +132,11 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
     programs: z
       .array(ProgramResultSchema.describe('Program result with school context.'))
       .describe(
-        'Program results — multiple programs per school if school matches multiple CIP codes. Sorted by earnings descending (suppressed last).',
+        'Program rows retain separate credential identities, sorted by earnings descending with unavailable or privacy-suppressed earnings last.',
       ),
     total_programs: z.number().describe('Total programs returned across all result schools.'),
     suppressed_count: z.number().describe('Programs with suppressed earnings.'),
+    unavailable_count: z.number().describe('Programs with unavailable earnings of unknown cause.'),
   }),
 
   enrichment: {
@@ -248,6 +266,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
     const response = await service.searchPrograms(
       {
         ...(input.cip_code && { cipCode: input.cip_code }),
+        ...(input.credential_level != null && { credentialLevel: input.credential_level }),
         ...(input.state && { state: input.state }),
         ...(input.ownership != null && { ownership: input.ownership }),
         ...(input.max_net_price != null && { maxNetPrice: input.max_net_price }),
@@ -264,6 +283,9 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       const rawPrograms = record['latest.programs.cip_4_digit'] ?? [];
       // When cip_code filter applied, API returns only matching programs
       for (const p of rawPrograms) {
+        if (input.cip_code && p.code?.replaceAll('.', '') !== input.cip_code) continue;
+        if (input.credential_level != null && p.credential?.level !== input.credential_level)
+          continue;
         // Apply program_name soft filter if cip_code not provided
         if (input.program_name && !input.cip_code) {
           const nameMatch = (p.title ?? '')
@@ -272,9 +294,10 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
           if (!nameMatch) continue;
         }
 
-        const rawEarnings = p.earnings?.highest?.['1_yr']?.overall_median_earnings;
+        const earnings = readMetric(p.earnings?.highest?.['1_yr']?.overall_median_earnings);
+        const rawEarnings = earnings.value;
         const medianDebt = p.debt?.staff_grad_plus?.all?.all_inst?.median;
-        const suppressed = rawEarnings == null;
+        const suppressed = earnings.availability === 'privacy_suppressed';
 
         // Post-fetch earnings filter
         if (input.min_earnings != null && (rawEarnings == null || rawEarnings < input.min_earnings))
@@ -292,23 +315,29 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
           }),
           program_code: p.code ?? 'Unknown',
           ...(p.title && { program_title: p.title }),
+          ...(p.credential?.level != null && { credential_level: p.credential.level }),
+          ...(p.credential?.title != null && { credential_title: p.credential.title }),
           ...(rawEarnings != null && { earnings_1yr_median: rawEarnings }),
           ...(medianDebt != null && { median_debt: medianDebt }),
           ...(p.counts?.ipeds_awards1 != null && { ipeds_awards_year1: p.counts.ipeds_awards1 }),
           ...(p.counts?.ipeds_awards2 != null && { ipeds_awards_year2: p.counts.ipeds_awards2 }),
           suppressed,
+          earnings_availability: earnings.availability,
         });
       }
     }
 
-    // Sort: earnings descending, suppressed last
+    // Available numbers sort ahead of missing or privacy-suppressed earnings.
     allPrograms.sort((a, b) => {
-      if (a.suppressed && !b.suppressed) return 1;
-      if (!a.suppressed && b.suppressed) return -1;
+      if (a.earnings_1yr_median == null && b.earnings_1yr_median != null) return 1;
+      if (a.earnings_1yr_median != null && b.earnings_1yr_median == null) return -1;
       return (b.earnings_1yr_median ?? 0) - (a.earnings_1yr_median ?? 0);
     });
 
     const suppressed_count = allPrograms.filter((p) => p.suppressed).length;
+    const unavailable_count = allPrograms.filter(
+      (p) => p.earnings_availability === 'unavailable',
+    ).length;
 
     const { total, page, per_page } = response.metadata;
     const truncated = (page + 1) * per_page < total;
@@ -323,9 +352,9 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
             : 'No schools matched the upstream filters. No programs matched; broaden state, CIP, or cost filters.'
           : 'No programs matched the local filters on this populated school page. Try removing min_earnings, max_debt, or program_name, or use scorecard_lookup_cip to find the correct CIP code.',
       );
-    } else if (suppressed_count === allPrograms.length) {
+    } else if (suppressed_count + unavailable_count === allPrograms.length) {
       notices.push(
-        `All ${allPrograms.length} programs have suppressed earnings data. Try a broader CIP code or different state.`,
+        `All ${allPrograms.length} programs lack available earnings: ${suppressed_count} confirmed privacy-suppressed, ${unavailable_count} unavailable with unknown cause. Try a broader CIP code or different state.`,
       );
     }
     if (truncated) {
@@ -342,24 +371,29 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       programs: allPrograms,
       total_programs: allPrograms.length,
       suppressed_count,
+      unavailable_count,
     };
   },
 
   format: (result) => {
     const lines = [
       `## Program Search Results`,
-      `**Schools Matched:** ${result.total} | **Programs:** ${result.total_programs} | **Suppressed:** ${result.suppressed_count}`,
+      `**Schools Matched:** ${result.total} | **Programs:** ${result.total_programs} | **Suppressed:** ${result.suppressed_count} | **Unavailable:** ${result.unavailable_count}`,
       `**Page:** ${result.page} | **Per Page:** ${result.per_page}`,
     ];
     for (const p of result.programs) {
       lines.push(`\n**${p.program_code}** — ${p.program_title ?? 'Unknown'}`);
+      if (p.credential_level != null || p.credential_title != null)
+        lines.push(
+          `Credential: ${p.credential_title ?? 'Title not reported'}${p.credential_level != null ? ` (level ${p.credential_level})` : ''}`,
+        );
       lines.push(
         `School: ${p.school_name} (ID: ${p.school_id}) | ${p.school_ownership}${p.school_state ? ` | ${p.school_state}` : ''}`,
       );
       if (p.net_price_overall != null)
         lines.push(`Net Price: $${p.net_price_overall.toLocaleString()}`);
       lines.push(
-        `1-Year Earnings (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : p.suppressed ? 'Suppressed (small cohort)' : 'Not available'}`,
+        `1-Year Earnings (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : 'Not available'} | Availability: ${p.earnings_availability} | Suppressed: ${p.suppressed}`,
       );
       if (p.median_debt != null)
         lines.push(

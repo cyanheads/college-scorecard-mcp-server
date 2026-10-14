@@ -11,6 +11,7 @@ import {
   runToolContract,
 } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EARNINGS_FIELDS } from '@/data/earnings-context.js';
 import { FIELD_CATALOG } from '@/data/field-catalog.js';
 import { programsResource } from '@/mcp-server/resources/definitions/programs.resource.js';
 import { schoolResource } from '@/mcp-server/resources/definitions/school.resource.js';
@@ -27,6 +28,7 @@ import {
   getScorecardService,
   initScorecardService,
 } from '@/services/scorecard/scorecard-service.js';
+import earningsReference from '../fixtures/earnings-reference.json' with { type: 'json' };
 
 const endpoint = /^https:\/\/api\.data\.gov\/ed\/collegescorecard\/v1\/schools\?/;
 const textOf = (result: Awaited<ReturnType<typeof runToolContract>>) =>
@@ -76,6 +78,340 @@ describe('Scorecard caller contracts', () => {
   });
 
   describe('reconciled lookup and search regressions', () => {
+    it('renders available P75 profile values even when P25 is absent', async () => {
+      serve([
+        {
+          ...school(),
+          'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75': 70000,
+          'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75': 80000,
+        },
+      ]);
+      const result = await runToolContract(getSchoolTool, { id: 236948 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        schools: [{ earnings_6yr_p75: 70000, earnings_10yr_p75: 80000 }],
+      });
+      expect(textOf(result)).toContain('Earnings P25/P75 (6yr): N/A / $70,000');
+      expect(textOf(result)).toContain('Earnings P25/P75 (10yr): N/A / $80,000');
+    });
+    it.each([0, 1, 2])(
+      'applies provider CIP × credential conjunction before slicing school page %i',
+      async (page) => {
+        const records = [
+          [
+            { ...program(), credential: { level: 5, title: "Master's" } },
+            { ...program(), code: '5202' },
+          ],
+          [program(), { ...program(), credential: { level: 5, title: "Master's" } }],
+          [program(0)],
+        ].map((programs, index) => ({
+          ...school(),
+          id: index + 1,
+          'latest.programs.cip_4_digit': programs,
+        }));
+        api.route({
+          match: endpoint,
+          respond: (request) => {
+            const url = new URL(request.url);
+            requests.push(url);
+            const matching = records.flatMap((record) => {
+              const rows = record['latest.programs.cip_4_digit'].filter(
+                (row) =>
+                  row.code === url.searchParams.get('latest.programs.cip_4_digit.code') &&
+                  row.credential.level ===
+                    Number(url.searchParams.get('latest.programs.cip_4_digit.credential.level')),
+              );
+              return rows.length ? [{ ...record, 'latest.programs.cip_4_digit': rows }] : [];
+            });
+            const offset = Number(url.searchParams.get('page'));
+            return Response.json({
+              metadata: { total: matching.length, page: offset, per_page: 1 },
+              results: matching.slice(offset, offset + 1),
+            });
+          },
+        });
+        const result = await runToolContract(searchProgramsTool, {
+          cip_code: '11.07',
+          credential_level: 3,
+          per_page: 1,
+          page,
+        });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toMatchObject({
+          total: 2,
+          page,
+          per_page: 1,
+          total_programs: page < 2 ? 1 : 0,
+          query: { cip_code: '1107', credential_level: 3 },
+          truncated: page === 0,
+        });
+        const rows = (result.structuredContent as { programs: { school_id: number }[] }).programs;
+        expect(rows.map((row) => row.school_id)).toEqual(page === 0 ? [2] : page === 1 ? [3] : []);
+        expect(requests).toHaveLength(1);
+        expect(textOf(result)).toContain('"credential_level":3');
+        if (page === 2) expect(textOf(result)).toContain('page is exhausted');
+      },
+    );
+    it('matches every embedded historical/latest provenance cell to the official dictionary fixture', async () => {
+      serve(earningsReference.response.results);
+      const years = Object.keys(earningsReference.trend_context).map(Number);
+      const result = await runToolContract(getEarningsTool, { id: 236948, years });
+      expect(result.isError).toBeFalsy();
+      const data = result.structuredContent as {
+        current_context: unknown;
+        trend: { year: number; context: unknown }[];
+      };
+      expect(data.current_context).toEqual(earningsReference.current_context);
+      for (const row of data.trend)
+        expect(row.context).toEqual(
+          earningsReference.trend_context[
+            String(row.year) as keyof typeof earningsReference.trend_context
+          ],
+        );
+      expect(requests).toHaveLength(1);
+      expect(textOf(result)).toContain('Non-Male');
+      const text = textOf(result);
+      for (const [key, context] of Object.entries(earningsReference.current_context)) {
+        const label = {
+          earnings_6yr_median: '6-Year Median',
+          earnings_6yr_p25: '6-Year P25',
+          earnings_6yr_p75: '6-Year P75',
+          earnings_8yr_median: '8-Year Median',
+          earnings_10yr_median: '10-Year Median',
+          earnings_10yr_p25: '10-Year P25',
+          earnings_10yr_p75: '10-Year P75',
+          earnings_6yr_non_male_median: '6-Year Non-Male Median',
+          earnings_6yr_male_median: '6-Year Male Median',
+        }[key as keyof typeof earningsReference.current_context];
+        expect(text.split('\n')).toContain(
+          `${label}: available | Data-file year: ${context.data_file_year} | Entry cohorts: ${context.entry_cohorts.join(', ')} | Measurement years: ${context.measurement_years.join(', ')} | Dollar year: ${context.dollar_year}`,
+        );
+      }
+    });
+    it.each(['PS', 'PrivacySuppressed'] as const)(
+      'requires every current metric explicitly %s for aggregate suppression',
+      async (marker) => {
+        serve([
+          {
+            ...school(),
+            ...Object.fromEntries(
+              Object.values(EARNINGS_FIELDS).map((suffix) => [`latest.earnings.${suffix}`, marker]),
+            ),
+          },
+        ]);
+        const result = await runToolContract(getEarningsTool, { id: 236948 });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toMatchObject({
+          current: {},
+          suppressed: true,
+          suppression_note: expect.stringContaining('explicitly privacy-suppressed'),
+        });
+        expect(textOf(result)).toContain('privacy_suppressed');
+      },
+    );
+    it('preserves earnings availability independently of numeric values and provenance', async () => {
+      serve([
+        {
+          ...school(),
+          'latest.earnings.6_yrs_after_entry.median': 0,
+          'latest.earnings.10_yrs_after_entry.median': 'PS',
+          '2011.earnings.6_yrs_after_entry.median': 'PrivacySuppressed',
+        },
+      ]);
+      const result = await runToolContract(getEarningsTool, { id: 236948, years: [2011] });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        suppressed: false,
+        current: { earnings_6yr_median: 0 },
+        current_availability: {
+          earnings_6yr_median: 'available',
+          earnings_10yr_median: 'privacy_suppressed',
+          earnings_6yr_p25: 'unavailable',
+        },
+        current_context: {
+          earnings_6yr_median: {
+            data_file_year: 2020,
+            entry_cohorts: ['2013-14', '2014-15'],
+            dollar_year: 2022,
+          },
+          earnings_8yr_median: { entry_cohorts: ['2011-12', '2012-13'] },
+          earnings_10yr_median: { entry_cohorts: ['2009-10', '2010-11'] },
+        },
+        trend: [
+          {
+            availability: {
+              earnings_6yr_median: 'privacy_suppressed',
+              earnings_10yr_median: 'unavailable',
+            },
+          },
+        ],
+      });
+      expect(textOf(result)).toContain('privacy_suppressed');
+      expect(textOf(result)).toContain('unavailable');
+      expect(textOf(result)).not.toMatch(/FERPA|small cohort/);
+      expect(requests).toHaveLength(1);
+    });
+    it('requests and maps provider earnings percentiles and non-male medians', async () => {
+      const record = {
+        ...school(),
+        'latest.earnings.6_yrs_after_entry.median': 50000,
+        'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25': 0,
+        'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75': 70000,
+        'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.25': 40000,
+        'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75': 80000,
+        'latest.earnings.6_yrs_after_entry.median_earnings_non_male': 45000,
+        'latest.earnings.6_yrs_after_entry.median_earnings_male': 55000,
+      };
+      api.route({
+        match: endpoint,
+        respond: (request) => {
+          const url = new URL(request.url);
+          requests.push(url);
+          const fields = url.searchParams.get('fields')!.split(',');
+          return Response.json({
+            metadata: { total: 1, page: 0, per_page: 1 },
+            results: [
+              Object.fromEntries(Object.entries(record).filter(([key]) => fields.includes(key))),
+            ],
+          });
+        },
+      });
+      for (const definition of [getEarningsTool, getSchoolTool]) {
+        const result = await runToolContract(definition, { id: 236948 });
+        expect(result.isError).toBeFalsy();
+        const data = result.structuredContent as {
+          current?: Record<string, unknown>;
+          schools?: Record<string, unknown>[];
+        };
+        expect(data.current ?? data.schools?.[0]).toMatchObject({
+          earnings_6yr_p25: 0,
+          earnings_6yr_p75: 70000,
+          earnings_10yr_p25: 40000,
+          earnings_10yr_p75: 80000,
+        });
+        expect(textOf(result)).toContain('$0');
+        expect(textOf(result)).toContain('70,000');
+        if (definition === getEarningsTool)
+          expect(data.current).toMatchObject({
+            earnings_6yr_non_male_median: 45000,
+            earnings_6yr_male_median: 55000,
+          });
+      }
+      expect(requests).toHaveLength(2);
+      for (const request of requests)
+        expect(request.searchParams.get('fields')).not.toMatch(
+          /percentile25|percentile75|female_students|male_students/,
+        );
+      expect(
+        FIELD_CATALOG.some((field) =>
+          /percent_greater_than_100000|mean_annual_increment/.test(field.path),
+        ),
+      ).toBe(false);
+    });
+    it('validates data-file years without losing valid old or unavailable observations', async () => {
+      serve([
+        {
+          ...school(),
+          '2003.earnings.6_yrs_after_entry.median': 30000,
+          '2005.earnings.6_yrs_after_entry.median': 35000,
+          '2011.earnings.6_yrs_after_entry.median': 41300,
+          '2011.earnings.10_yrs_after_entry.median': 52100,
+        },
+      ]);
+      const result = await runToolContract(getEarningsTool, {
+        id: 236948,
+        years: [1996, 2003, 2005, 2011, 2021, 2025],
+      });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        trend: [
+          { year: 1996, availability: { earnings_6yr_median: 'unavailable' } },
+          { year: 2003, earnings_6yr_median: 30000 },
+          { year: 2005, earnings_6yr_median: 35000 },
+          {
+            year: 2011,
+            earnings_6yr_median: 41300,
+            context: {
+              earnings_6yr_median: {
+                data_file_year: 2011,
+                entry_cohorts: ['2004-05', '2005-06'],
+                measurement_years: [2011, 2012],
+                dollar_year: 2014,
+              },
+              earnings_10yr_median: { entry_cohorts: ['2000-01', '2001-02'] },
+            },
+          },
+          { year: 2021, availability: { earnings_6yr_median: 'unavailable' } },
+          { year: 2025 },
+        ],
+      });
+      expect(textOf(result)).toContain('Data-file');
+      expect(textOf(result)).toContain('2004-05');
+      expect(textOf(result)).toContain('2014');
+      for (const year of [-1, 1995, 2026, 9999]) {
+        const invalid = await runToolContract(getEarningsTool, { id: 236948, years: [year] });
+        expect(invalid.isError).toBe(true);
+        expect(invalid.structuredContent).toMatchObject({
+          error: { code: JsonRpcErrorCode.InvalidParams },
+        });
+      }
+      expect(requests).toHaveLength(1);
+    });
+    it.each([
+      { raw: 0, availability: 'available', suppressed: false, value: 0 },
+      { raw: null, availability: 'unavailable', suppressed: false, value: undefined },
+      { raw: undefined, availability: 'unavailable', suppressed: false, value: undefined },
+      { raw: 'PS', availability: 'privacy_suppressed', suppressed: true, value: undefined },
+      {
+        raw: 'PrivacySuppressed',
+        availability: 'privacy_suppressed',
+        suppressed: true,
+        value: undefined,
+      },
+    ])(
+      'distinguishes program metric availability for $raw',
+      async ({ raw, availability, suppressed, value }) => {
+        serve([
+          school([
+            { ...program(), earnings: { highest: { '1_yr': { overall_median_earnings: raw } } } },
+          ]),
+        ]);
+        for (const definition of [getProgramsTool, searchProgramsTool]) {
+          const result = await runToolContract(
+            definition,
+            definition === getProgramsTool ? { id: 236948 } : {},
+          );
+          expect(result.isError).toBeFalsy();
+          expect(result.structuredContent).toMatchObject({
+            suppressed_count: Number(suppressed),
+            unavailable_count: Number(availability === 'unavailable'),
+            programs: [{ earnings_availability: availability, suppressed }],
+          });
+          const row = (result.structuredContent as { programs: Record<string, unknown>[] })
+            .programs[0]!;
+          expect(row.earnings_1yr_median).toBe(value);
+          expect(textOf(result)).toContain(availability);
+          expect(textOf(result)).not.toMatch(/FERPA|small cohort/);
+        }
+      },
+    );
+    it('rejects unknown metric strings through the availability contract', async () => {
+      serve([
+        school([
+          {
+            ...program(),
+            earnings: { highest: { '1_yr': { overall_median_earnings: 'unknown-value' } } },
+          },
+        ]),
+      ]);
+      const result = await runToolContract(getProgramsTool, { id: 236948 });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        error: { code: JsonRpcErrorCode.ServiceUnavailable, data: { reason: 'api_error' } },
+      });
+      expect(textOf(result)).toContain('provider metric');
+      expect(textOf(result)).toContain('report persistent provider failures');
+    });
     const statusCases = [
       [400, JsonRpcErrorCode.InvalidParams, 'api_invalid_params', 1],
       [422, JsonRpcErrorCode.ValidationError, 'api_validation', 1],
@@ -765,7 +1101,8 @@ describe('Scorecard caller contracts', () => {
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toMatchObject({
         total: 3,
-        suppressed_count: 1,
+        suppressed_count: 0,
+        unavailable_count: 1,
         programs: [
           {
             code: '1107',
@@ -774,7 +1111,7 @@ describe('Scorecard caller contracts', () => {
             suppressed: false,
           },
           { earnings_1yr_median: 0, suppressed: false },
-          { suppressed: true },
+          { suppressed: false, earnings_availability: 'unavailable' },
         ],
       });
       expect(textOf(result)).toContain('$70,000');
@@ -1091,7 +1428,7 @@ describe('Scorecard caller contracts', () => {
     }
 
     it.each([
-      { mode: 'suppressed', rows: [program(null)], hint: 'suppressed earnings data' },
+      { mode: 'unavailable', rows: [program(null)], hint: 'unavailable with unknown cause' },
       { mode: 'empty', rows: [program()], hint: 'No programs matched' },
     ])(
       'composes $mode guidance once with continuation and keeps it at exhaustion',

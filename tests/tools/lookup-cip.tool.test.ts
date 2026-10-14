@@ -5,9 +5,46 @@
 
 import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { describe, expect, it } from 'vitest';
+import { CIP_ALIASES, CIP_CODES } from '@/data/cip-codes.js';
 import { lookupCipTool } from '@/mcp-server/tools/definitions/lookup-cip.tool.js';
+import official from '../fixtures/cip-2020.json' with { type: 'json' };
 
 describe('lookupCipTool', () => {
+  it('matches every retained four-digit group and family to NCES CIP 2020', () => {
+    expect(new Set(CIP_CODES.map((entry) => entry.code)).size).toBe(CIP_CODES.length);
+    for (const entry of CIP_CODES) {
+      expect(entry.code).toMatch(/^\d{2}\.\d{2}$/);
+      expect(entry.family).toBe(entry.code.slice(0, 2));
+      expect(official.groups[entry.code as keyof typeof official.groups]).toBe(entry.title);
+      expect(official.families[entry.family as keyof typeof official.families]).toBe(
+        entry.familyTitle,
+      );
+    }
+    for (const [group, aliases] of Object.entries(CIP_ALIASES)) {
+      expect(CIP_CODES.some((entry) => entry.code === group)).toBe(true);
+      for (const alias of aliases) {
+        expect(alias.code.slice(0, 5)).toBe(group);
+        expect(official.descendants[alias.code as keyof typeof official.descendants]).toBe(
+          alias.title,
+        );
+      }
+    }
+  });
+  it.each([
+    ['forensic psychology', '42.28', 'Clinical, Counseling and Applied Psychology.'],
+    ['sociology', '45.11', 'Sociology.'],
+    ['1107', '11.07', 'Computer Science.'],
+    ['journalism', '09.04', 'Journalism.'],
+    ['economics and computer science', '30.39', 'Economics and Computer Science.'],
+  ])('resolves %s to its canonical group', async (query, code, title) => {
+    const result = await runToolContract(lookupCipTool, { query });
+    expect(result.isError).toBeFalsy();
+    const first = (result.structuredContent as { results: Record<string, unknown>[] }).results[0];
+    expect(first).toMatchObject({ code, title });
+    const text = result.content.map((block) => (block as { text?: string }).text ?? '').join('\n');
+    expect(text).toContain(code);
+    expect(text).toContain(title);
+  });
   it('returns CIP entries for a known keyword', async () => {
     const ctx = createMockContext({ errors: lookupCipTool.errors });
     const input = lookupCipTool.input.parse({ query: 'computer science' });

@@ -4,7 +4,7 @@
  */
 
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { createMockContext, getEnrichment } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { compareSchoolsTool } from '@/mcp-server/tools/definitions/compare-schools.tool.js';
 
@@ -51,6 +51,62 @@ const makeRecord = (id: number, name: string, overrides: Record<string, unknown>
 });
 
 describe('compareSchoolsTool', () => {
+  it('ranks numbers only and distinguishes absent from explicit privacy markers', async () => {
+    mockGetComparisonData.mockResolvedValue(
+      makeComparisonResult([
+        makeRecord(1, 'Zero', { 'latest.cost.tuition.in_state': 0 }),
+        makeRecord(2, 'Null', { 'latest.cost.tuition.in_state': null }),
+        makeRecord(3, 'Privacy', { 'latest.cost.tuition.in_state': 'PS' }),
+      ]),
+    );
+    const result = await runToolContract(compareSchoolsTool, { ids: [1, 2, 3], topic: 'costs' });
+    expect(result.isError).toBeFalsy();
+    const row = (
+      result.structuredContent as { rows: { metric: string; values: unknown[] }[] }
+    ).rows.find((candidate) => candidate.metric === 'In-State Tuition')!;
+    expect(row.values).toEqual([
+      { school_id: 1, value: 0, rank: 1, availability: 'available', suppressed: false },
+      { school_id: 2, availability: 'unavailable', suppressed: false },
+      { school_id: 3, availability: 'privacy_suppressed', suppressed: true },
+    ]);
+    const text = result.content.map((block) => (block as { text?: string }).text ?? '').join('\n');
+    expect(text).toContain('privacy_suppressed');
+    expect(text).toContain('unavailable');
+  });
+  it.each([
+    ['costs', 'In-State Tuition', 'latest.cost.tuition.in_state', [0, 0, 100], [1, 1, 3]],
+    [
+      'outcomes',
+      'Median Earnings (6yr)',
+      'latest.earnings.6_yrs_after_entry.median',
+      [100, 100, 0],
+      [1, 1, 3],
+    ],
+    ['costs', 'In-State Tuition', 'latest.cost.tuition.in_state', [0, 0, 0], [1, 1, 1]],
+  ] as const)('assigns competition ranks for %s %s', async (topic, metric, key, values, ranks) => {
+    mockGetComparisonData.mockResolvedValue(
+      makeComparisonResult(
+        values.map((value, i) => makeRecord(i + 1, `School ${i + 1}`, { [key]: value })),
+      ),
+    );
+    for (const ids of [
+      [1, 2, 3],
+      [3, 2, 1],
+    ]) {
+      const result = await compareSchoolsTool.handler(
+        compareSchoolsTool.input.parse({ ids, topic }),
+        createMockContext({ errors: compareSchoolsTool.errors }),
+      );
+      const row = result.rows.find((candidate) => candidate.metric === metric)!;
+      expect(row.values.map((cell) => cell.rank)).toEqual(ids.map((id) => ranks[id - 1]));
+      const leaders = ids.filter((id) => ranks[id - 1] === 1).map((id) => `School ${id}`);
+      const tieSummary = `${leaders.join(' and ')} tie for best on ${metric}`;
+      expect(result.summary).toContain(tieSummary);
+      const text = (compareSchoolsTool.format!(result)[0] as { text: string }).text;
+      expect(text).toContain('(#1)');
+      expect(text).toContain(tieSummary);
+    }
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -110,7 +166,7 @@ describe('compareSchoolsTool', () => {
     expect(notice).toContain('999999');
   });
 
-  it('handles suppressed metric values (null data)', async () => {
+  it('handles unavailable metric values without asserting suppression', async () => {
     mockGetComparisonData.mockResolvedValue(
       makeComparisonResult([
         makeRecord(236948, 'University of Washington', { 'latest.cost.tuition.in_state': null }),
@@ -123,7 +179,8 @@ describe('compareSchoolsTool', () => {
     const inStateTuitionRow = result.rows.find((r) => r.metric === 'In-State Tuition');
     expect(inStateTuitionRow).toBeDefined();
     const suppressedValue = inStateTuitionRow!.values.find((v) => v.school_id === 236948);
-    expect(suppressedValue!.suppressed).toBe(true);
+    expect(suppressedValue!.suppressed).toBe(false);
+    expect(suppressedValue!.availability).toBe('unavailable');
   });
 
   // Regression (issue #7): the costs topic's net-price-by-income rows must read
@@ -198,16 +255,34 @@ describe('compareSchoolsTool', () => {
         {
           metric: 'In-State Tuition',
           values: [
-            { school_id: 236948, value: 11839, rank: 1, suppressed: false },
-            { school_id: 110635, value: 13000, rank: 2, suppressed: false },
+            {
+              school_id: 236948,
+              value: 11839,
+              rank: 1,
+              suppressed: false,
+              availability: 'available' as const,
+            },
+            {
+              school_id: 110635,
+              value: 13000,
+              rank: 2,
+              suppressed: false,
+              availability: 'available' as const,
+            },
           ],
           unit: '$',
         },
         {
           metric: 'Out-of-State Tuition',
           values: [
-            { school_id: 236948, suppressed: true },
-            { school_id: 110635, value: 38000, rank: 1, suppressed: false },
+            { school_id: 236948, suppressed: true, availability: 'privacy_suppressed' as const },
+            {
+              school_id: 110635,
+              value: 38000,
+              rank: 1,
+              suppressed: false,
+              availability: 'available' as const,
+            },
           ],
           unit: '$',
         },

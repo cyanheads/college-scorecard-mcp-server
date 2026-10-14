@@ -1,30 +1,27 @@
 /**
  * @fileoverview School comparison tool. Returns normalized side-by-side comparison
- * of 2–5 schools with percentile ranks and relative deltas within the result set.
+ * of 2–5 schools with ordinal competition ranks within the result set.
  * @module mcp-server/tools/definitions/compare-schools.tool
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { normalizeSchoolId, SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
+import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
-/** Compute rank within an array of values (0-indexed, higher is better for most metrics) */
+/** Rank available values by the number of strictly better values; ties share a rank. */
 function computeRanks(
   values: (number | null | undefined)[],
   higherIsBetter = true,
 ): (number | null)[] {
-  const nonNull = values
-    .map((v, i) => ({ v: v as number, i }))
-    .filter((x) => x.v != null)
-    .sort((a, b) => (higherIsBetter ? b.v - a.v : a.v - b.v));
-
-  const rankMap = new Map<number, number>();
-  for (const [rankIdx, { i }] of nonNull.entries()) {
-    rankMap.set(i, rankIdx + 1);
-  }
-
-  return values.map((_, i) => rankMap.get(i) ?? null);
+  return values.map((value) =>
+    value == null
+      ? null
+      : 1 +
+        values.filter((other) => other != null && (higherIsBetter ? other > value : other < value))
+          .length,
+  );
 }
 
 const ComparisonRowSchema = z.object({
@@ -36,7 +33,10 @@ const ComparisonRowSchema = z.object({
           school_id: z.number().describe('School unit ID.'),
           value: z.number().optional().describe('Raw metric value. Omitted when not available.'),
           rank: z.number().optional().describe('Rank within this comparison set (1=best).'),
-          suppressed: z.boolean().describe('True when data is unavailable for this school/metric.'),
+          suppressed: z.boolean().describe('True only for explicit provider privacy markers.'),
+          availability: MetricAvailabilitySchema.describe(
+            'Available number, unavailable with unknown cause, or confirmed privacy suppression.',
+          ),
         })
         .describe('Per-school data point for this metric.'),
     )
@@ -48,7 +48,7 @@ const ComparisonRowSchema = z.object({
 export const compareSchoolsTool = tool('scorecard_compare_schools', {
   title: 'Compare Schools',
   description:
-    'Normalized side-by-side comparison of 2–5 schools on a named topic. Returns percentile-ranked rows and relative deltas within the result set — structured output an agent cannot reconstruct from raw profiles. Topics: costs (tuition, net price by income bracket, debt), admissions (acceptance rate, SAT/ACT, enrollment), outcomes (graduation rate, earnings, repayment), aid (Pell grants, federal loans, debt, repayment). This is different from scorecard_get_school with multiple IDs — compare_schools adds within-set normalization.',
+    'Side-by-side comparison of 2–5 schools with ordinal competition ranks within the selected set (ties share a rank). Topics: costs (tuition, net price by income bracket, debt), admissions (acceptance rate, SAT/ACT, enrollment), outcomes (completion, earnings, repayment), aid (Pell grants, federal loans, debt, repayment). Use scorecard_get_school for full profiles.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
@@ -408,26 +408,29 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       const lookupKeys = m.keys ?? [m.key];
       const rawValues = found.map((s) => {
         const r = byId.get(String(s.id));
-        if (!r) return null;
+        if (!r) return { school_id: s.id, ...readMetric(undefined) };
         for (const k of lookupKeys) {
-          const raw = r[k] as number | null | undefined;
-          if (raw != null) return raw;
+          const raw = r[k];
+          if (raw != null) return { school_id: s.id, ...readMetric(raw) };
         }
-        return null;
+        return { school_id: s.id, ...readMetric(undefined) };
       });
 
-      const ranks = computeRanks(rawValues, m.higherIsBetter);
+      const ranks = computeRanks(
+        rawValues.map((metric) => metric.value),
+        m.higherIsBetter,
+      );
 
       return {
         metric: m.metric,
-        values: found.map((s, i) => {
-          const rv = rawValues[i];
+        values: rawValues.map((rv, i) => {
           const rk = ranks[i];
           return {
-            school_id: s.id,
-            ...(rv != null ? { value: rv } : {}),
+            school_id: rv.school_id,
+            ...(rv.value != null ? { value: rv.value } : {}),
             ...(rk != null ? { rank: rk } : {}),
-            suppressed: rv == null,
+            suppressed: rv.availability === 'privacy_suppressed',
+            availability: rv.availability,
           };
         }),
         ...(m.unit && { unit: m.unit }),
@@ -437,13 +440,17 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
 
     // Build a brief summary of the most notable differences
     const bestByMetric = rows
-      .filter((r) => r.values.some((v) => !v.suppressed))
+      .filter((r) => r.values.some((v) => v.value != null))
       .slice(0, 3)
       .map((r) => {
-        const best = r.values.find((v) => v.rank === 1 && !v.suppressed);
-        if (!best) return null;
-        const school = schools.find((s) => s.id === best.school_id);
-        return `${school?.name ?? best.school_id} leads on ${r.metric}`;
+        const best = r.values.filter((v) => v.rank === 1 && !v.suppressed);
+        if (best.length === 0) return null;
+        const names = best.map(
+          (value) =>
+            schools.find((school) => school.id === value.school_id)?.name ??
+            String(value.school_id),
+        );
+        return `${names.join(' and ')} ${best.length > 1 ? 'tie for best' : 'leads'} on ${r.metric}`;
       })
       .filter(Boolean);
 
@@ -485,8 +492,9 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           valueDisplay = 'N/A';
         }
         const rankDisplay = v.rank != null ? `#${v.rank}` : 'N/A';
-        const suppressedLabel = v.suppressed ? ' (suppressed)' : '';
-        lines.push(`  ${schoolName}: ${valueDisplay} (${rankDisplay})${suppressedLabel}`);
+        lines.push(
+          `  ${schoolName}: ${valueDisplay} (${rankDisplay}) | Availability: ${v.availability} | Suppressed: ${v.suppressed}`,
+        );
       }
     }
     return [{ type: 'text', text: lines.join('\n') }];

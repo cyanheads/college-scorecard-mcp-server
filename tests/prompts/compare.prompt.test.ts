@@ -5,8 +5,29 @@
 
 import { describe, expect, it } from 'vitest';
 import { comparePrompt } from '@/mcp-server/prompts/definitions/compare.prompt.js';
+import { compareSchoolsTool } from '@/mcp-server/tools/definitions/compare-schools.tool.js';
 
 describe('comparePrompt', () => {
+  it.each(['costs', 'outcomes', 'programs'] as const)(
+    'uses supported tool workflows for %s',
+    async (focus) => {
+      const messages = await comparePrompt.generate({ school_names: 'School A, School B', focus });
+      const text = (messages[0]!.content as { text: string }).text;
+      expect(text).toContain('scorecard_search_schools');
+      if (focus === 'programs') {
+        expect(text).not.toContain('scorecard_compare_schools');
+        expect(text).toContain('matching credential');
+        expect(text).toContain('IPEDS awards');
+        expect(text).toContain('two pooled debt-cohort years');
+        expect(text).not.toMatch(/and enrollment/);
+      } else {
+        expect(compareSchoolsTool.input.safeParse({ ids: [1, 2], topic: focus }).success).toBe(
+          true,
+        );
+        expect(text).toContain(`topic "${focus}"`);
+      }
+    },
+  );
   it('generates a valid message array for costs focus', async () => {
     const args = comparePrompt.args!.parse({
       school_names: 'University of Washington, University of Oregon',

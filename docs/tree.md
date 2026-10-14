@@ -1,6 +1,6 @@
 # college-scorecard-mcp-server - Directory Structure
 
-Generated on: 2026-10-13 14:51:28
+Generated on: 2026-10-14 13:46:39
 
 ```text
 college-scorecard-mcp-server/
@@ -141,6 +141,7 @@ college-scorecard-mcp-server/
 │   │   └── server-config.ts
 │   ├── data/
 │   │   ├── cip-codes.ts
+│   │   ├── earnings-context.ts
 │   │   └── field-catalog.ts
 │   ├── mcp-server/
 │   │   ├── prompts/
@@ -166,10 +167,14 @@ college-scorecard-mcp-server/
 │   ├── services/
 │   │   └── scorecard/
 │   │       ├── input-normalization.ts
+│   │       ├── metric-availability.ts
 │   │       ├── scorecard-service.ts
 │   │       └── types.ts
 │   └── index.ts
 ├── tests/
+│   ├── fixtures/
+│   │   ├── cip-2020.json
+│   │   └── earnings-reference.json
 │   ├── prompts/
 │   │   └── compare.prompt.test.ts
 │   ├── resources/

@@ -13,6 +13,21 @@ import { ScorecardService } from '@/services/scorecard/scorecard-service.js';
 const apiErrorRecovery = getSchoolTool.errors?.find((e) => e.reason === 'api_error')?.recovery;
 
 describe('ScorecardService', () => {
+  it('sends CIP and credential filters before provider school pagination', async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request) =>
+      Response.json({ metadata: { total: 0, page: 2, per_page: 5 }, results: [] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await new ScorecardService({} as never, {} as never).searchPrograms(
+      { cipCode: '11.07', credentialLevel: 3, page: 2, perPage: 5 },
+      createMockContext(),
+    );
+    const params = new URL(String(fetchMock.mock.calls[0]![0])).searchParams;
+    expect(params.get('latest.programs.cip_4_digit.code')).toBe('1107');
+    expect(params.get('latest.programs.cip_4_digit.credential.level')).toBe('3');
+    expect(params.get('page')).toBe('2');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => {
     vi.stubEnv('SCORECARD_API_KEY', 'test-key');
     vi.useFakeTimers();

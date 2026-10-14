@@ -124,6 +124,8 @@ describe('valueAnalysisTool', () => {
       list_price: 11839,
       net_price_overall: 15000,
       net_price_for_income: 6000,
+      effective_net_price: 6000,
+      net_price_basis: 'income_bracket' as const,
       applicable_income_bracket: '$0–$30,000',
       median_debt: 17000,
       repayment_progress_3yr: 0.79,

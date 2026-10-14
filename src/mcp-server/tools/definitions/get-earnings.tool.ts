@@ -1,33 +1,81 @@
 /**
- * @fileoverview Earnings tool. Returns institution-level post-graduation earnings
+ * @fileoverview Earnings tool. Returns institution-level earnings of federally aided entrants
  * for one school at 6, 8, and 10 years after entry, with optional gender breakdown.
  * @module mcp-server/tools/definitions/get-earnings.tool
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import {
+  EARNINGS_FIELDS,
+  historicalEarningsContext,
+  LATEST_EARNINGS_CONTEXT,
+} from '@/data/earnings-context.js';
 import { SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
+import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
+
+const ContextMapSchema = z.record(
+  z.string(),
+  z
+    .object({
+      data_file_year: z
+        .number()
+        .int()
+        .describe('Start year of the API data file; not a cohort entry year.'),
+      entry_cohorts: z
+        .array(z.string())
+        .optional()
+        .describe('Verified academic-year entry cohorts.'),
+      measurement_years: z
+        .array(z.number().int())
+        .optional()
+        .describe('Verified calendar years when earnings were measured.'),
+      dollar_year: z
+        .number()
+        .int()
+        .optional()
+        .describe('Verified inflation dollar basis; returned values are not re-inflated.'),
+    })
+    .describe('Official provenance for one metric.'),
+);
+const AvailabilityMapSchema = z.record(
+  z.string(),
+  MetricAvailabilitySchema.describe('Provider availability for one supported metric.'),
+);
 
 export const getEarningsTool = tool('scorecard_get_earnings', {
   title: 'Get School Earnings',
   description:
-    'Institution-level post-graduation earnings for one school — median and percentiles at 6, 8, and 10 years after entry, with optional gender breakdown. This reflects outcomes across all graduates, not broken down by program. For program-specific earnings use scorecard_get_programs. For ROI analysis combining cost and debt data use scorecard_value_analysis. The years parameter accepts a list of cohort entry years for historical trend queries — omit for current snapshot only.',
+    'Institution-level earnings of federally aided undergraduate entrants working and not enrolled, regardless of completion. Reports medians at 6/8/10 years after entry, 6/10-year percentiles, and non-male/male 6-year medians. For graduate program earnings use scorecard_get_programs. years selects API data-file start years (1996–2025), including files without earnings observations. Per-metric availability and official cohort/measurement/dollar context accompany values; unknown metadata stays absent. No re-inflation is performed.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   input: z.object({
     id: SchoolIdSchema,
     years: z
-      .array(z.number().int())
+      .array(
+        z
+          .number()
+          .int()
+          .min(1996)
+          .max(2025)
+          .describe('Published API data-file start year (1996–2025).'),
+      )
       .optional()
       .describe(
-        'Optional list of cohort entry years for historical trend data (e.g. [2011, 2012, 2013]). Omit for current snapshot.',
+        'Optional API data-file start years from 1996–2025 (e.g. [2003, 2011, 2020]); valid files may lack observations. Omit or pass [] for snapshot only.',
       ),
   }),
 
   output: z.object({
     school_id: z.number().describe('School unit ID.'),
     school_name: z.string().describe('Institution name.'),
+    current_availability: AvailabilityMapSchema.describe(
+      'Availability keyed by every supported current earnings metric.',
+    ),
+    current_context: ContextMapSchema.describe(
+      'Official latest provenance keyed by metric, independent of returned values.',
+    ),
     current: z
       .object({
         earnings_6yr_median: z.number().optional().describe('Median earnings 6 years after entry.'),
@@ -52,10 +100,10 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
           .number()
           .optional()
           .describe('75th percentile earnings 10 years after entry.'),
-        earnings_6yr_female_median: z
+        earnings_6yr_non_male_median: z
           .number()
           .optional()
-          .describe('Median earnings 6 years after entry for female students.'),
+          .describe('Median earnings 6 years after entry for non-male students.'),
         earnings_6yr_male_median: z
           .number()
           .optional()
@@ -66,25 +114,31 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
       .array(
         z
           .object({
-            year: z.number().describe('Cohort entry year.'),
+            year: z.number().describe('API data-file start year.'),
+            availability: AvailabilityMapSchema.describe(
+              'Availability of the supported historical medians.',
+            ),
+            context: ContextMapSchema.describe(
+              'Verified per-metric provenance; unknown metadata omitted.',
+            ),
             earnings_6yr_median: z
               .number()
               .optional()
-              .describe('Median earnings 6 years after entry for this cohort.'),
+              .describe('Median earnings 6 years after entry reported in this data file.'),
             earnings_10yr_median: z
               .number()
               .optional()
-              .describe('Median earnings 10 years after entry for this cohort.'),
+              .describe('Median earnings 10 years after entry reported in this data file.'),
           })
-          .describe('Earnings data point for one cohort entry year.'),
+          .describe('Earnings observations for one API data file.'),
       )
       .optional()
       .describe(
-        'Historical trend rows by cohort entry year. Present only when years parameter was supplied.',
+        'Historical rows by API data-file start year. Present only when nonempty years were supplied.',
       ),
     suppressed: z
       .boolean()
-      .describe('True when earnings data is suppressed across all time points.'),
+      .describe('True only when every supported current metric has an explicit privacy marker.'),
     suppression_note: z.string().optional().describe('Explains suppression when suppressed=true.'),
   }),
 
@@ -189,47 +243,36 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
       });
     }
 
-    const v6med = r['latest.earnings.6_yrs_after_entry.median'];
-    const v6p25 = r['latest.earnings.6_yrs_after_entry.percentile25'];
-    const v6p75 = r['latest.earnings.6_yrs_after_entry.percentile75'];
-    const v8med = r['latest.earnings.8_yrs_after_entry.median_earnings'];
-    const v10med = r['latest.earnings.10_yrs_after_entry.median'];
-    const v10p25 = r['latest.earnings.10_yrs_after_entry.percentile25'];
-    const v10p75 = r['latest.earnings.10_yrs_after_entry.percentile75'];
-    const v6fem = r['latest.earnings.6_yrs_after_entry.female_students.median_earnings'];
-    const v6mal = r['latest.earnings.6_yrs_after_entry.male_students.median_earnings'];
-
-    const current = {
-      ...(v6med != null && { earnings_6yr_median: v6med }),
-      ...(v6p25 != null && { earnings_6yr_p25: v6p25 }),
-      ...(v6p75 != null && { earnings_6yr_p75: v6p75 }),
-      ...(v8med != null && { earnings_8yr_median: v8med }),
-      ...(v10med != null && { earnings_10yr_median: v10med }),
-      ...(v10p25 != null && { earnings_10yr_p25: v10p25 }),
-      ...(v10p75 != null && { earnings_10yr_p75: v10p75 }),
-      ...(v6fem != null && { earnings_6yr_female_median: v6fem }),
-      ...(v6mal != null && { earnings_6yr_male_median: v6mal }),
-    };
-
-    const suppressed = Object.keys(current).length === 0;
+    const metrics = Object.entries(EARNINGS_FIELDS).map(
+      ([key, suffix]) => [key, readMetric(r[`latest.earnings.${suffix}`])] as const,
+    );
+    const current = Object.fromEntries(
+      metrics.flatMap(([key, metric]) => (metric.value != null ? [[key, metric.value]] : [])),
+    );
+    const current_availability = Object.fromEntries(
+      metrics.map(([key, metric]) => [key, metric.availability]),
+    );
+    const suppressed = metrics.every(([, metric]) => metric.availability === 'privacy_suppressed');
     const suppression_note = suppressed
-      ? 'Earnings data not available — likely suppressed due to small cohort size (FERPA).'
+      ? 'Every supported current earnings metric is explicitly privacy-suppressed by the provider; the particular cause is not supplied.'
       : undefined;
 
     // Build trend rows for requested years
     const trend =
       input.years && input.years.length > 0
         ? input.years.map((year) => {
-            const row: {
-              year: number;
-              earnings_6yr_median?: number;
-              earnings_10yr_median?: number;
-            } = { year };
-            const k6 = `${year}.earnings.6_yrs_after_entry.median`;
-            const k10 = `${year}.earnings.10_yrs_after_entry.median`;
-            if (r[k6] != null) row.earnings_6yr_median = r[k6] as number;
-            if (r[k10] != null) row.earnings_10yr_median = r[k10] as number;
-            return row;
+            const six = readMetric(r[`${year}.earnings.6_yrs_after_entry.median`]);
+            const ten = readMetric(r[`${year}.earnings.10_yrs_after_entry.median`]);
+            return {
+              year,
+              ...(six.value != null && { earnings_6yr_median: six.value }),
+              ...(ten.value != null && { earnings_10yr_median: ten.value }),
+              availability: {
+                earnings_6yr_median: six.availability,
+                earnings_10yr_median: ten.availability,
+              },
+              context: historicalEarningsContext(year),
+            };
           })
         : undefined;
 
@@ -237,6 +280,8 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
       school_id: r.id ?? Number(input.id),
       school_name: r['school.name'] ?? 'Unknown',
       current,
+      current_availability,
+      current_context: LATEST_EARNINGS_CONTEXT,
       ...(trend && { trend }),
       suppressed,
       ...(suppression_note && { suppression_note }),
@@ -256,10 +301,32 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
     lines.push(`8-Year Median: ${fmt(c.earnings_8yr_median)}`);
     lines.push(`10-Year Median: ${fmt(c.earnings_10yr_median)}`);
     lines.push(`10-Year P25/P75: ${fmt(c.earnings_10yr_p25)} / ${fmt(c.earnings_10yr_p75)}`);
-    lines.push(`6-Year Female Median: ${fmt(c.earnings_6yr_female_median)}`);
+    lines.push(`6-Year Non-Male Median: ${fmt(c.earnings_6yr_non_male_median)}`);
     lines.push(`6-Year Male Median: ${fmt(c.earnings_6yr_male_median)}`);
+    const labels: Record<string, string> = {
+      earnings_6yr_median: '6-Year Median',
+      earnings_6yr_p25: '6-Year P25',
+      earnings_6yr_p75: '6-Year P75',
+      earnings_8yr_median: '8-Year Median',
+      earnings_10yr_median: '10-Year Median',
+      earnings_10yr_p25: '10-Year P25',
+      earnings_10yr_p75: '10-Year P75',
+      earnings_6yr_non_male_median: '6-Year Non-Male Median',
+      earnings_6yr_male_median: '6-Year Male Median',
+    };
+    const contextLine = (
+      key: string,
+      availability: string,
+      context: z.infer<typeof ContextMapSchema>[string],
+    ) =>
+      `${labels[key]}: ${availability} | Data-file year: ${context.data_file_year} | Entry cohorts: ${context.entry_cohorts?.join(', ') ?? 'Unknown'} | Measurement years: ${context.measurement_years?.join(', ') ?? 'Unknown'} | Dollar year: ${context.dollar_year ?? 'Unknown'}`;
+    lines.push('\n**Current Availability and Provenance**');
+    for (const [key, availability] of Object.entries(result.current_availability)) {
+      const context = result.current_context[key];
+      if (context) lines.push(contextLine(key, availability, context));
+    }
     if (result.trend && result.trend.length > 0) {
-      lines.push('\n**Historical Trend (by Entry Year)**');
+      lines.push('\n**Historical Trend (by Data-file Start Year)**');
       for (const row of result.trend) {
         const parts = [`Year: ${row.year}`];
         if (row.earnings_6yr_median != null)
@@ -267,6 +334,10 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
         if (row.earnings_10yr_median != null)
           parts.push(`10yr: $${row.earnings_10yr_median.toLocaleString()}`);
         lines.push(parts.join(' | '));
+        for (const [key, availability] of Object.entries(row.availability)) {
+          const context = row.context[key];
+          if (context) lines.push(contextLine(key, availability, context));
+        }
       }
     }
     return [{ type: 'text', text: lines.join('\n') }];

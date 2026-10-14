@@ -8,10 +8,10 @@
 |:-----|:------------|:-----------|:------------|
 | `scorecard_search_schools` | Search institutions with optional single-sex filters and API sorting. Returns core identity and cost metrics. | `query`, `state`, `ownership`, `degree_level`, `size_range`, `acceptance_rate_range`, `zip`, `distance`, `cip_code`, `sort`, `men_only`, `women_only`, `per_page`, `page` | `readOnlyHint` |
 | `scorecard_get_school` | Full institutional profile for one or more school IDs — costs, admissions, outcomes, aid, demographics, and completion rates. When multiple IDs are supplied, returns all profiles; for side-by-side comparison on a specific dimension, use `scorecard_compare_schools`. | `id` (string or array), `fields` | `readOnlyHint`, `idempotentHint` |
-| `scorecard_compare_schools` | Normalized side-by-side comparison of 2–5 schools on a named topic. Returns percentile-ranked rows and relative deltas within the result set — structured output an agent cannot reconstruct from raw profiles. | `ids`, `topic` | `readOnlyHint` |
+| `scorecard_compare_schools` | Side-by-side metric values and ordinal competition ranks for 2–5 schools; ties share a rank and unavailable values are unranked. | `ids`, `topic` | `readOnlyHint` |
 | `scorecard_get_programs` | Field-of-study programs at one school: median earnings and cohort count 1 year after the highest credential, cumulative Stafford/Grad PLUS debt, and IPEDS award counts for the two pooled debt-cohort years. Institution-level 6/8/10-year earnings are available via `scorecard_get_earnings`. | `id`, `cip_code`, `min_earnings`, `credential_level` | `readOnlyHint` |
-| `scorecard_search_programs` | Find programs by CIP code or keyword across institutions, ranked by earnings within the fetched school page. School filters apply upstream; minimum earnings filters programs locally without changing school totals. Returns school names and IDs alongside program metrics. | `cip_code`, `program_name`, `state`, `ownership`, `max_net_price`, `min_earnings`, `max_debt`, `per_page`, `page` | `readOnlyHint` |
-| `scorecard_get_earnings` | Institution-level post-graduation earnings for one school — median and percentiles at 6, 8, and 10 years after entry, with optional gender breakdown. This reflects outcomes across all graduates, not broken down by program; for program-specific earnings, use `scorecard_get_programs`. | `id`, `years` | `readOnlyHint`, `idempotentHint` |
+| `scorecard_search_programs` | Find programs by CIP code or keyword across institutions, ranked by earnings within the fetched school page. School filters apply upstream; minimum earnings filters programs locally without changing school totals. Returns school names and IDs alongside program metrics and provider credential identity; CIP and credential filters apply together before school pagination. | `cip_code`, `credential_level`, `program_name`, `state`, `ownership`, `max_net_price`, `min_earnings`, `max_debt`, `per_page`, `page` | `readOnlyHint` |
+| `scorecard_get_earnings` | Earnings of federally aided undergraduate entrants working and not enrolled, regardless of completion: 6/8/10-year medians, 6/10-year percentiles, non-male/male 6-year medians, and per-metric availability/provenance. `years` selects data-file vintages. | `id`, `years` | `readOnlyHint`, `idempotentHint` |
 | `scorecard_value_analysis` | Combines cost, debt, repayment progress, and earnings for one school, with derived ratios and source figures. `family_income` selects the applicable net price bracket. | `id`, `family_income` | `readOnlyHint` |
 | `scorecard_lookup_cip` | Search for Classification of Instructional Programs (CIP) codes by keyword or partial name. Returns matching CIP codes with standard titles. Required before using CIP-based filters in `scorecard_search_programs` or `scorecard_get_programs` when the caller knows a program by name but not code. | `query` | `readOnlyHint`, `openWorldHint: false` |
 | `scorecard_list_fields` | Search the Scorecard field catalog by keyword. Returns field paths, descriptions, types, and sort support. Use before passing custom `fields` to `scorecard_get_school`. | `query` | `readOnlyHint`, `openWorldHint: false` |
@@ -33,7 +33,7 @@
 
 ## Overview
 
-College Scorecard MCP Server wraps the U.S. Department of Education's College Scorecard API (`api.data.gov/ed/collegescorecard/v1`), which covers ~6,500 Title IV institutions and ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings. The server surfaces the most decision-relevant slice of that data — primarily post-graduation earnings by program, net price by income bracket, debt loads, and completion rates — via a tool surface designed for the questions people actually ask about colleges: "Is this school worth it?", "Which CS programs pay off?", "How do these schools compare?", "Find schools matching my criteria."
+College Scorecard MCP Server wraps the U.S. Department of Education's College Scorecard API (`api.data.gov/ed/collegescorecard/v1`), which covers ~6,500 Title IV institutions and ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings. The server surfaces the most decision-relevant slice of that data — program graduate earnings and institution entrant earnings, net price by income bracket, debt loads, and completion rates — via a tool surface designed for the questions people actually ask about colleges: "Is this school worth it?", "Which CS programs pay off?", "How do these schools compare?", "Find schools matching my criteria."
 
 Program-level outcomes report median earnings of graduates working and not enrolled 1 year after their highest credential, by school, CIP code, and credential level. Program search ranks only the fetched school page, so callers paginate to inspect further institutions.
 
@@ -49,7 +49,7 @@ Target users: agents helping with college research, financial planning, career e
 - ~6,500 institutions; data updated periodically (last updated March 2026)
 - Field-of-study (program) data trails institution data by ~2 years due to earnings cohort lag
 - Earnings data uses the `latest.*` shorthand for most recent cohort; individual year fields available for trend queries
-- Some fields are sparsely populated (null is common — especially earnings at selective schools with small cohorts, due to FERPA suppression; surfaced as structured `suppressed: true` flag, not bare null)
+- Null/absent metrics are unavailable with unknown cause. Only explicit `PS` / `PrivacySuppressed` markers establish privacy suppression, without establishing its particular cause.
 - School sorting forwards indexed API fields; program search orders the fetched page locally by earnings
 - Batch ID lookup normalizes and deduplicates up to 1,000 raw elements, fetches the first 100 distinct IDs, and reports missing processed IDs separately from unchecked excess
 - Geographic filtering accepts ZIP-only provider defaults, ZIP+4, and nonnegative bare/mi/km decimal radii; a meaningful distance requires ZIP
@@ -126,7 +126,8 @@ Calls 1 and 2 run in parallel via `Promise.all`, each restricted to the requeste
 **Output fields:**
 - `school_name`, `school_id` — for chaining
 - `list_price` — full tuition + fees
-- `net_price_overall`, `net_price_for_income`, `applicable_income_bracket` — average net price and the selected family-income bracket when provided
+- `net_price_overall`, `net_price_for_income`, `family_income`, `applicable_income_bracket` — source estimates and requested income/bracket, retained even when the bracket estimate is unavailable
+- `effective_net_price`, `net_price_basis` — price used in the annual-earnings ratio and its basis (`income_bracket`, `overall`, or `unavailable`); notes disclose missing-bracket fallback
 - `median_debt` — median debt at graduation
 - `graduation_rate` — completion rate at 150% normal time
 - `repayment_progress_3yr` — share of borrowers paying down principal 3 years after entering repayment
@@ -142,7 +143,7 @@ Returns structured comparison rows with metric values and ordinal ranks within t
 | # | Call | Purpose |
 |:--|:-----|:--------|
 | 1 | `GET /schools?id={ids,comma-separated}&fields=...topic-specific...` | Fetch topic-specific fields for all schools in one request |
-| — | Normalize | Compute within-set percentile ranks and relative deltas |
+| — | Normalize | Compute ordinal competition ranks from strictly better available values (1, 1, 3); summaries name co-leaders |
 
 Topics and their field sets:
 - `costs` — tuition in/out, net price by income bracket, median debt
@@ -156,11 +157,13 @@ Topics and their field sets:
 
 ### `compare_schools` is not redundant with `get_school` multi-ID
 
-`get_school` with an array returns N raw profiles — useful when the agent needs to read the full data. `compare_schools` returns normalized rows with within-set percentile ranks and relative deltas that are structurally impossible to reconstruct from raw profiles without knowing which other schools are in the comparison set. The separation is about output shape, not field selection.
+`get_school` with an array returns profiles. `compare_schools` returns named metric rows with ordinal competition ranks within the requested set, metric-specific direction, and tied-leader summaries. Input order controls presentation; equal values share ranks and missing values receive no rank.
 
 ### `latest.*` shorthand vs. explicit year fields
 
-Tools default to `latest.*` (most recent available cohort per field) for all current-state queries. `scorecard_get_earnings` accepts a `years` parameter for time-series analysis. This hides year-by-year variation across the dataset (different fields have different latest cohorts) from callers who don't need it.
+Tools default to `latest.*`, whose provenance is per metric. Earnings `years` selects published data-file start years 1996–2025, including unavailable years; invalid years fail before fetching. `trend[].year` is a file vintage, not an entry year. Institution earnings describe federally aided undergraduate entrants working and not enrolled, regardless of completion.
+
+`src/data/earnings-context.ts` transcribes the official Institution_Cohort_Map and Most_Recent_Inst_Cohort_Map. `current_context` and each trend `context` map metrics to verified `data_file_year`, academic `entry_cohorts`, calendar `measurement_years`, and `dollar_year`. Unknown metadata is omitted. Latest provenance is established from the official map, never calendar arithmetic, sample equality, or an extra fetch. Dollar bases differ by file vintage; values are not re-inflated. Refresh the embedded domain/table when the dictionary changes.
 
 ### Field pre-selection strategy
 
@@ -182,9 +185,11 @@ Catalog totals are counted before slicing at serving caps (fields 100, CIP 50), 
 
 Two distinct tools with different primary questions. `get_programs` is school-centric: "what programs does MIT offer, and what do their graduates earn?" `search_programs` is program-centric: "which schools in Washington have computer science programs with median earnings over $80k?" They have different primary keys, different filter sets (school-side filters only on `search_programs`), and different output shapes. Both include school IDs in output for chaining.
 
-### FERPA suppression as structured output
+### Metric availability as structured output
 
-The API returns null for earnings at schools with small program cohorts (FERPA protection). Rather than letting null reach the LLM bare, all program and earnings tools include a `suppressed` boolean and `suppression_note` string when data is missing due to privacy protection. This prevents the LLM from hallucinating a value or misinterpreting absence as a data quality issue.
+`readMetric` preserves finite numbers, including zero, classifies null/absence as `unavailable`, and recognizes only explicit `PS` / `PrivacySuppressed` markers as `privacy_suppressed`. Unknown strings or shapes are provider contract failures (`ServiceUnavailable`, `api_error`) with provider retry/report recovery. No runtime CSV fetching supplies a cause.
+
+Program rows expose `earnings_availability`, comparison cells expose `availability`, and earnings snapshots/trends expose per-metric availability maps. `suppressed` flags/counts require confirmed markers; `unavailable_count` covers program earnings of unknown cause. Earnings aggregate suppression requires every supported current metric to be explicitly suppressed. Both wire surfaces carry these states. Missing earnings sort after available numbers and never pass numeric filters.
 
 ### Sortable vs. non-sortable fields
 
@@ -198,13 +203,13 @@ School `men_only` / `women_only` filters distinguish true (1), false (0), and om
 
 ### CIP and field catalog as embedded static data
 
-Both `scorecard_lookup_cip` and `scorecard_list_fields` use embedded TypeScript data derived from public government sources: 202 curated CIP codes and 80 field entries. These lookups work offline and make no API calls; they are subsets of the full upstream taxonomy and dictionary.
+Both lookups use embedded government reference data: 186 current NCES CIP 2020 four-digit groups and 78 field entries. CIP titles and two-digit families match the official CSV exactly. Verified six-digit descendant titles provide keyword aliases while results retain the canonical four-digit group. Deleted and moved-from rows are excluded; this remains a curated subset. Dotted/undotted code queries normalize equivalently. Offline tests fixture the official groups, families, and selected descendants.
 
 ---
 
 ## Known Limitations
 
-- Earnings data is unavailable for many school/program combinations with small cohorts (FERPA suppression) — this is structural and affects the most selective schools most severely
+- Earnings may be unavailable for many reasons; null and absence do not identify a privacy cause
 - Program earnings are medians for graduates working and not enrolled 1 year after their highest credential; 10-year figures are institution-level only
 - Field-of-study data trails institution data by ~2 academic years
 - 1,000 requests/hour rate limit — `scorecard_search_programs` across all states can exhaust budget; callers should scope searches

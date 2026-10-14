@@ -39,10 +39,10 @@ U.S. college data from the Department of Education College Scorecard API — cos
 | `scorecard_get_school` | Full institutional profiles — costs, admissions, outcomes, aid, demographics, single-sex flags, and completion rates. |
 | `scorecard_compare_schools` | Normalized side-by-side comparison of 2–5 schools on a named topic. Returns metric values, ordinal ranks, and a comparison summary. |
 | `scorecard_get_programs` | Field-of-study programs at one school: median 1-year earnings, cumulative Stafford/Grad PLUS debt, and IPEDS awards in the two pooled debt-cohort years. |
-| `scorecard_search_programs` | Find programs by CIP code or keyword, with school, earnings, and debt filters; rank by earnings within each fetched school page. |
-| `scorecard_get_earnings` | Institution-level post-graduation earnings for one school — median at 6, 8, and 10 years after entry (P25/P75 at 6 and 10 years), with optional gender breakdown. |
+| `scorecard_search_programs` | Find programs by CIP and credential or keyword, retain degree identity, and rank earnings within each fetched school page. |
+| `scorecard_get_earnings` | Earnings of federally aided undergraduate entrants working and not enrolled, regardless of completion: 6/8/10-year medians, 6/10-year P25/P75, and non-male/male 6-year medians. |
 | `scorecard_value_analysis` | Workflow tool: parallel-fetches cost, debt, repayment, and earnings data, then computes ROI metrics — debt-to-earnings ratio and net price to earnings ratio. |
-| `scorecard_lookup_cip` | Search 202 curated Classification of Instructional Programs (CIP) codes by keyword or partial name. Served from embedded static data — no API call or rate-limit impact. |
+| `scorecard_lookup_cip` | Search 186 curated NCES CIP 2020 four-digit groups by code, keyword, or verified descendant alias. Served offline. |
 | `scorecard_list_fields` | Search the Scorecard field catalog by keyword. Returns matching field paths, descriptions, data types, and sort support. Use before passing custom `fields` parameters. |
 
 ### Resources
@@ -81,7 +81,7 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 ### `scorecard_compare_schools` <sub>tool</sub>
 
 - Accepts 2–5 school unit IDs and one topic: `costs`, `admissions`, `outcomes`, or `aid`.
-- Returns comparison rows with metric values, within-set ordinal ranks, and a comparison summary from a single API call.
+- Returns metric values and competition ranks from one API call: equal values share a rank (1, 1, 3), unavailable values are unranked, and summaries name tied leaders. Each cell's `availability` distinguishes available, unavailable with unknown cause, and confirmed privacy suppression.
 
 ---
 
@@ -89,44 +89,45 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 
 - Accepts one school ID, with optional CIP code, `credential_level`, and minimum earnings filters.
 - Existing schools with no reported or matching programs return a successful empty collection; a nonexistent school remains a lookup error. Dotted and undotted four-digit CIP codes are equivalent.
-- Returns median earnings and the matching count of graduates working and not enrolled 1 year after their highest credential, with `suppressed` and `suppression_note` for unavailable earnings.
+- Returns median earnings and the matching count of graduates working and not enrolled 1 year after their highest credential. `earnings_availability` is `available`, `unavailable`, or `privacy_suppressed`; zero is available, null/absence has unknown cause, and only explicit provider privacy markers set `suppressed`. `suppressed_count` and `unavailable_count` distinguish those populations.
 - `median_debt` is completers' cumulative Stafford/Grad PLUS borrowing across attended institutions at the same academic level. `ipeds_awards_year1` and `ipeds_awards_year2` count awards in each year of the pooled debt cohort, not enrollment or unique students.
 
 ---
 
 ### `scorecard_search_programs` <sub>tool</sub>
 
-- Search by CIP code or program name, with state, ownership, net price, earnings, and debt filters; zero-indexed `page` and `per_page` (up to 100) paginate schools, so returned program rows may exceed `per_page`.
-- Returns school IDs and names alongside program metrics, sorted by earnings within the fetched page.
+- Search by CIP code or program name, with optional integer `credential_level`, state, ownership, net price, earnings, and debt filters; zero-indexed `page` and `per_page` (up to 100) paginate schools, so returned program rows may exceed `per_page`. CIP and credential selectors apply together upstream before pagination; credential codes are 1–8 and 99, and unknown integer selectors may return no matches.
+- Returns school IDs and names alongside program metrics and provider `credential_level` / `credential_title`, retaining separate credentials and future numeric credential levels; missing identity fields stay absent. Available earnings sort first; availability states and counts have the same meaning as in `scorecard_get_programs`.
 - `min_earnings` filters locally; totals and pagination remain upstream school counts before local filtering. Earnings/debt thresholds are inclusive and exclude unknown values. Debt and award fields have the same meanings as in `scorecard_get_programs`.
 
 ---
 
 ### `scorecard_get_earnings` <sub>tool</sub>
 
-- Accepts one school ID and optional `years` for cohort trends and a gender-breakdown option.
-- Returns median earnings at 6, 8, and 10 years after entry, P25/P75 at 6 and 10 years, and optional 6-year female/male medians; `suppressed` and `suppression_note` flag earnings unavailable at every time point.
-- Each requested trend year adds its 6-year and 10-year median alongside the current snapshot.
+- Accepts one school ID and optional API data-file start `years` from 1996–2025. These are file vintages, not entry years; valid files without observations succeed. Omit `years` or pass `[]` for snapshot only.
+- Institution earnings cover federally aided undergraduate entrants working and not enrolled, regardless of completion. Returns medians at 6/8/10 years after entry, 6/10-year P25/P75, and non-male/male 6-year medians.
+- `current_availability` and `trend[].availability` classify each supported metric; aggregate `suppressed` requires every current metric to carry an explicit privacy marker. Null and omitted values do not prove suppression.
+- `current_context` and `trend[].context` give per-metric `data_file_year`, verified academic `entry_cohorts`, calendar `measurement_years`, and inflation `dollar_year`. Metadata comes from the official cohort maps; unknown parts are omitted. Values retain the provider's dollar basis, so cross-vintage comparisons require checking it. Each requested file adds six- and ten-year medians without extra requests.
 
 ---
 
 ### `scorecard_value_analysis` <sub>tool</sub>
 
 - Accepts one school ID; optional `family_income` selects the applicable net price bracket ($0–30k, $30k–48k, $48k–75k, $75k–110k, or $110k+).
-- Returns debt-to-earnings and net-price-to-earnings ratios alongside the source figures; `data_notes` explains suppressed or missing fields.
+- Returns ratios alongside their source figures. `effective_net_price` discloses the price used, and `net_price_basis` is `income_bracket`, `overall`, or `unavailable`. A missing bracket preserves requested `family_income` / `applicable_income_bracket` and explains the established overall-price fallback in `data_notes`. Zero estimates remain valid; ratios require positive annual earnings.
 
 ---
 
 ### `scorecard_lookup_cip` <sub>tool</sub>
 
 - Search by nonblank keyword or partial name (default limit 20); requests up to 1,000 are accepted and served at a cap of 50. Totals count before slicing; exact-cap results are not truncated, and no matches return an empty collection with guidance.
-- Returns codes, standard titles, and CIP families from a curated offline set of 202 common 4-digit codes, rather than the full NCES taxonomy.
+- Dotted `11.07` and undotted `1107` queries are equivalent. Returns exact group titles and family identities from 186 current NCES CIP 2020 four-digit groups; verified six-digit descendant names act as keyword aliases, returning their canonical group. This curated set is a subset of the full taxonomy.
 
 ---
 
 ### `scorecard_list_fields` <sub>tool</sub>
 
-- Search 80 curated offline field entries by nonblank query (default limit 30); requests up to 1,000 are accepted and served at a cap of 100. Totals count before slicing; no matches return an empty collection with guidance. Use before passing custom `fields` to `scorecard_get_school`.
+- Search 78 curated offline field entries by nonblank query (default limit 30); requests up to 1,000 are accepted and served at a cap of 100. Totals count before slicing; no matches return an empty collection with guidance. Use before passing custom `fields` to `scorecard_get_school`.
 - Returns field paths, descriptions, data types, categories, and API sorting support; `tip` flags results containing unsortable fields.
 
 ---
@@ -150,7 +151,7 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 ### `scorecard_compare_prompt` <sub>prompt</sub>
 
 - Arguments: `school_names` (comma-separated list) and `focus` (`costs` | `outcomes` | `programs`), both required
-- Returns one user message sequencing `scorecard_search_schools` → `scorecard_compare_schools` → `scorecard_get_school`, plus `scorecard_get_programs`/`scorecard_lookup_cip` when focus is `programs` or `scorecard_value_analysis` otherwise
+- Costs/outcomes sequence school discovery, `scorecard_compare_schools`, profiles, and value analysis. Programs sequence school discovery, CIP lookup, and `scorecard_get_programs` per school; compare matching credentials using returned earnings, cumulative debt, and IPEDS awards in the two pooled debt-cohort years. Missing values and award-year dates remain unknown.
 
 ## Features
 
@@ -161,12 +162,12 @@ College Scorecard-specific:
 - Full College Scorecard API coverage: ~6,500 Title IV institutions, ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings
 - Program-level earnings: median earnings of graduates working and not enrolled 1 year after their highest credential, per school × CIP code × credential level
 - Field pre-selection per tool — curated field sets appropriate to each tool's purpose; optional `fields` override for custom queries
-- Embedded CIP code taxonomy (202 codes) and field catalog (80 fields) served as static data — zero API calls, zero rate-limit impact
+- Embedded CIP taxonomy (186 groups) and field catalog (78 fields) served offline
 - Geographic filtering via U.S. zip code + distance radius
 
 Agent-friendly output:
 
-- FERPA suppression surfaced as structured `suppressed: true` flag with `suppression_note` — prevents hallucination of missing earnings data at selective schools with small cohorts
+- Availability distinguishes numbers (including zero), unknown-cause missing values, and explicit `PS` / `PrivacySuppressed` provider markers. Confirmed privacy suppression does not identify its particular cause.
 - Derived metrics alongside source figures in `scorecard_value_analysis` — agents can verify arithmetic and branch on computed values, not raw numbers
 - Ordinal ranks in `scorecard_compare_schools` place each school's metric values within the comparison set
 - School sorting uses indexed API fields; check `scorecard_list_fields` before choosing a sort expression. Six-year earnings does not support API sorting. Program earnings ordering applies within each fetched school page.

@@ -68,6 +68,91 @@ describe('value-analysis real-service contracts', () => {
   });
 
   describe('characterization', () => {
+    it.each(['public', 'private'])(
+      'discloses %s bracket basis at every income boundary including zero prices',
+      async (ownership) => {
+        const suffixes = ['0-30000', '30001-48000', '48001-75000', '75001-110000', '110001-plus'];
+        serve(
+          Object.fromEntries(
+            suffixes.flatMap((suffix, index) => [
+              [`latest.cost.net_price.${ownership}.by_income_level.${suffix}`, index * 1000],
+              [
+                `latest.cost.net_price.${ownership === 'public' ? 'private' : 'public'}.by_income_level.${suffix}`,
+                null,
+              ],
+            ]),
+          ),
+        );
+        for (const [income, expected] of [
+          [0, 0],
+          [30000, 0],
+          [30001, 1000],
+          [48000, 1000],
+          [48001, 2000],
+          [75000, 2000],
+          [75001, 3000],
+          [110000, 3000],
+          [110001, 4000],
+        ] as const) {
+          const result = await runToolContract(valueAnalysisTool, {
+            id: 236948,
+            family_income: income,
+          });
+          expect(result.isError).toBeFalsy();
+          expect(result.structuredContent).toMatchObject({
+            family_income: income,
+            effective_net_price: expected,
+            net_price_basis: 'income_bracket',
+            net_price_to_annual_earnings: expected / 50000,
+          });
+          expect(textOf(result)).toContain('basis: income_bracket');
+        }
+      },
+    );
+    it.each(['PS', 'PrivacySuppressed', null])(
+      'describes earnings %s without inventing a privacy cause',
+      async (raw) => {
+        serve({}, { 'latest.earnings.6_yrs_after_entry.median': raw });
+        const result = await runToolContract(valueAnalysisTool, { id: 236948 });
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).not.toHaveProperty('net_price_to_annual_earnings');
+        expect(textOf(result)).toContain(
+          raw == null ? 'unavailable; cause not supplied' : 'explicitly privacy-suppressed',
+        );
+        expect(textOf(result)).not.toMatch(/small cohort|FERPA/);
+      },
+    );
+    it('discloses a missing income bracket and preserved overall fallback', async () => {
+      serve({ 'latest.cost.net_price.public.by_income_level.0-30000': null });
+      const result = await runToolContract(valueAnalysisTool, { id: 236948, family_income: 25000 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        family_income: 25000,
+        applicable_income_bracket: '$0–$30,000',
+        effective_net_price: 15000,
+        net_price_basis: 'overall',
+        net_price_to_annual_earnings: 0.3,
+        data_notes: [expect.stringContaining('using overall net price')],
+      });
+      expect(textOf(result)).toContain('$0–$30,000');
+      expect(textOf(result)).toContain('Family income: $25,000');
+      expect(textOf(result)).toContain('basis: overall');
+      expect(requests).toHaveLength(2);
+    });
+    it('discloses no effective price when bracket and overall are absent', async () => {
+      serve({
+        'latest.cost.net_price.public.by_income_level.0-30000': null,
+        'latest.cost.avg_net_price.overall': null,
+      });
+      const result = await runToolContract(valueAnalysisTool, { id: 236948, family_income: 25000 });
+      expect(result.structuredContent).toMatchObject({
+        net_price_basis: 'unavailable',
+        applicable_income_bracket: '$0–$30,000',
+      });
+      expect(result.structuredContent).not.toHaveProperty('effective_net_price');
+      expect(result.structuredContent).not.toHaveProperty('net_price_to_annual_earnings');
+      expect(textOf(result)).toContain('basis: unavailable');
+    });
     it('preserves source values, repayment units and debt ratio on both surfaces', async () => {
       serve();
       const result = await runToolContract(valueAnalysisTool, { id: 236948 });

@@ -19,7 +19,7 @@ export interface RawProgram {
   earnings?: {
     highest?: {
       '1_yr'?: {
-        overall_median_earnings?: number | null;
+        overall_median_earnings?: number | 'PS' | 'PrivacySuppressed' | null;
         working_not_enrolled?: { overall_count?: number | null };
       };
     };
@@ -62,16 +62,16 @@ export interface RawSchoolRecord {
   // Cost
   'latest.cost.tuition.in_state'?: number | null;
   'latest.cost.tuition.out_of_state'?: number | null;
-  'latest.earnings.6_yrs_after_entry.female_students.median_earnings'?: number | null;
-  'latest.earnings.6_yrs_after_entry.male_students.median_earnings'?: number | null;
   // Earnings
   'latest.earnings.6_yrs_after_entry.median'?: number | null;
-  'latest.earnings.6_yrs_after_entry.percentile25'?: number | null;
-  'latest.earnings.6_yrs_after_entry.percentile75'?: number | null;
+  'latest.earnings.6_yrs_after_entry.median_earnings_male'?: number | null;
+  'latest.earnings.6_yrs_after_entry.median_earnings_non_male'?: number | null;
+  'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25'?: number | null;
+  'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75'?: number | null;
   'latest.earnings.8_yrs_after_entry.median_earnings'?: number | null;
   'latest.earnings.10_yrs_after_entry.median'?: number | null;
-  'latest.earnings.10_yrs_after_entry.percentile25'?: number | null;
-  'latest.earnings.10_yrs_after_entry.percentile75'?: number | null;
+  'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.25'?: number | null;
+  'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75'?: number | null;
   // Programs nested array
   'latest.programs.cip_4_digit'?: RawProgram[];
   // Share of the repayment cohort whose loan balance is declining (paying down

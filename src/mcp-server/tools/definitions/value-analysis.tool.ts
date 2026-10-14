@@ -7,6 +7,7 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
+import { readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 /** Select the net price bracket matching family_income */
@@ -47,6 +48,16 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
   output: z.object({
     school_id: z.number().describe('School unit ID.'),
     school_name: z.string().describe('Institution name.'),
+    family_income: z.number().optional().describe('Requested annual family income in dollars.'),
+    effective_net_price: z
+      .number()
+      .optional()
+      .describe(
+        'Price used in the annual-earnings ratio: available income bracket, otherwise overall net price.',
+      ),
+    net_price_basis: z
+      .enum(['income_bracket', 'overall', 'unavailable'])
+      .describe('Source of the effective price; unavailable means no estimate exists.'),
     // Cost
     list_price: z
       .number()
@@ -65,7 +76,7 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     applicable_income_bracket: z
       .string()
       .optional()
-      .describe('Income bracket used for net_price_for_income.'),
+      .describe('Requested income bracket, retained even when its estimate is unavailable.'),
     // Debt and repayment
     median_debt: z.number().optional().describe('Median debt at graduation (completers).'),
     repayment_progress_3yr: z
@@ -253,10 +264,10 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       costRecord['latest.repayment.repayment_cohort.3_year_declining_balance'] ?? undefined;
     const graduation_rate = costRecord['latest.completion.rate_suppressed.overall'] ?? undefined;
 
-    const earnings_6yr_median =
-      earningsRecord['latest.earnings.6_yrs_after_entry.median'] ?? undefined;
-    const earnings_10yr_median =
-      earningsRecord['latest.earnings.10_yrs_after_entry.median'] ?? undefined;
+    const earnings6 = readMetric(earningsRecord['latest.earnings.6_yrs_after_entry.median']);
+    const earnings10 = readMetric(earningsRecord['latest.earnings.10_yrs_after_entry.median']);
+    const earnings_6yr_median = earnings6.value;
+    const earnings_10yr_median = earnings10.value;
 
     // Compute derived metrics
     const debt_to_earnings_ratio =
@@ -265,6 +276,12 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
         : undefined;
 
     const effectiveNetPrice = net_price_for_income ?? net_price_overall;
+    const net_price_basis: 'income_bracket' | 'overall' | 'unavailable' =
+      net_price_for_income != null
+        ? 'income_bracket'
+        : net_price_overall != null
+          ? 'overall'
+          : 'unavailable';
     const net_price_to_annual_earnings =
       effectiveNetPrice != null && earnings_6yr_median != null && earnings_6yr_median > 0
         ? Math.round((effectiveNetPrice / earnings_6yr_median) * 100) / 100
@@ -272,6 +289,10 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
 
     // Collect data quality notes
     const data_notes: string[] = [];
+    if (input.family_income != null && net_price_for_income == null)
+      data_notes.push(
+        `Net price for requested bracket ${applicable_income_bracket} is unavailable; ${net_price_overall != null ? 'using overall net price' : 'overall net price is also unavailable'}.`,
+      );
     if (list_price == null)
       data_notes.push(
         'Tuition/fees not reported — school may be tuition-free or data unavailable.',
@@ -280,13 +301,15 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       data_notes.push(
         'Net price not reported — institution may not participate in Title IV aid programs.',
       );
-    if (median_debt == null) data_notes.push('Median debt suppressed or not reported.');
+    if (median_debt == null) data_notes.push('Median debt unavailable; cause not supplied.');
     if (earnings_6yr_median == null)
       data_notes.push(
-        '6-year earnings suppressed — cohort too small (FERPA) or program-level only data available.',
+        `6-year earnings ${earnings6.availability === 'privacy_suppressed' ? 'explicitly privacy-suppressed by the provider' : 'unavailable; cause not supplied'}.`,
       );
     if (earnings_10yr_median == null)
-      data_notes.push('10-year earnings suppressed or not reported.');
+      data_notes.push(
+        `10-year earnings ${earnings10.availability === 'privacy_suppressed' ? 'explicitly privacy-suppressed by the provider' : 'unavailable; cause not supplied'}.`,
+      );
     if (graduation_rate == null) data_notes.push('Completion rate not reported.');
     if (repayment_progress_3yr == null)
       data_notes.push('3-year repayment progress (declining balance) not reported.');
@@ -297,6 +320,9 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     return {
       school_id: schoolId,
       school_name: schoolName,
+      ...(input.family_income != null && { family_income: input.family_income }),
+      ...(effectiveNetPrice != null && { effective_net_price: effectiveNetPrice }),
+      net_price_basis,
       ...(list_price != null && { list_price }),
       ...(net_price_overall != null && { net_price_overall }),
       ...(net_price_for_income != null && { net_price_for_income }),
@@ -316,6 +342,13 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     const lines = [`## Value Analysis: ${result.school_name} (ID: ${result.school_id})`];
 
     lines.push('\n**Cost**');
+    if (result.family_income != null)
+      lines.push(`Family income: $${result.family_income.toLocaleString()}`);
+    if (result.applicable_income_bracket != null)
+      lines.push(`Requested income bracket: ${result.applicable_income_bracket}`);
+    lines.push(
+      `Effective Net Price: ${result.effective_net_price != null ? `$${result.effective_net_price.toLocaleString()}` : 'Not available'} (basis: ${result.net_price_basis})`,
+    );
     if (result.list_price != null)
       lines.push(`List Price (tuition + fees): $${result.list_price.toLocaleString()}`);
     if (result.net_price_overall != null)

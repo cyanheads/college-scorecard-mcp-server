@@ -11,6 +11,7 @@ import {
   normalizeSchoolId,
   SchoolIdSchema,
 } from '@/services/scorecard/input-normalization.js';
+import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 import type { RawProgram } from '@/services/scorecard/types.js';
 
@@ -70,7 +71,10 @@ const ProgramSchema = z.object({
     ),
   suppressed: z
     .boolean()
-    .describe('True when earnings data is suppressed due to small cohort (FERPA).'),
+    .describe('True only when the provider explicitly marks earnings as privacy-suppressed.'),
+  earnings_availability: MetricAvailabilitySchema.describe(
+    'Available number, unavailable with unknown cause, or confirmed privacy suppression.',
+  ),
   suppression_note: z
     .string()
     .optional()
@@ -80,7 +84,7 @@ const ProgramSchema = z.object({
 export const getProgramsTool = tool('scorecard_get_programs', {
   title: 'Get School Programs',
   description:
-    'All field-of-study programs at one school with median earnings 1 year after the highest credential, cumulative Stafford/Grad PLUS debt, and IPEDS award counts for each year of the pooled debt cohort. This is the primary source for program-level earnings — institution-level 6/8/10-year earnings are available via scorecard_get_earnings. Earnings may be suppressed (null) for programs with small cohorts due to FERPA privacy protection; suppressed=true flags this explicitly. Use scorecard_lookup_cip to find CIP codes by name.',
+    'All field-of-study programs at one school with median earnings 1 year after the highest credential, cumulative Stafford/Grad PLUS debt, and IPEDS awards for each year of the pooled debt cohort. Institution-level 6/8/10-year earnings are available via scorecard_get_earnings. Null or absent earnings have unknown cause; suppressed=true requires an explicit provider privacy marker. Use scorecard_lookup_cip to find CIP codes by name.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   input: z.object({
@@ -110,12 +114,13 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     programs: z
       .array(ProgramSchema.describe('Program outcome record.'))
       .describe(
-        'All programs at this school matching the filters. Sorted by median earnings descending (suppressed programs at end).',
+        'All programs matching the filters, sorted by earnings descending with unavailable or privacy-suppressed earnings last.',
       ),
     total: z.number().describe('Total programs returned after filtering.'),
     suppressed_count: z
       .number()
-      .describe('Number of programs with earnings suppressed due to small cohort.'),
+      .describe('Number of programs with confirmed privacy-suppressed earnings.'),
+    unavailable_count: z.number().describe('Programs with unavailable earnings of unknown cause.'),
   }),
 
   enrichment: {
@@ -125,7 +130,9 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     notice: z
       .string()
       .optional()
-      .describe('Guidance when no programs match the filters or all data is suppressed.'),
+      .describe(
+        'Guidance when no programs match or some earnings are unavailable or privacy-suppressed.',
+      ),
   },
   enrichmentTrailer: { query: { render: (value) => JSON.stringify(value) } },
 
@@ -254,10 +261,11 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     }
 
     const programs = filtered.map((p): z.infer<typeof ProgramSchema> => {
-      const rawEarnings = p.earnings?.highest?.['1_yr']?.overall_median_earnings;
+      const earnings = readMetric(p.earnings?.highest?.['1_yr']?.overall_median_earnings);
+      const rawEarnings = earnings.value;
       const earningsCount = p.earnings?.highest?.['1_yr']?.working_not_enrolled?.overall_count;
       const medianDebt = p.debt?.staff_grad_plus?.all?.all_inst?.median;
-      const suppressed = rawEarnings == null;
+      const suppressed = earnings.availability === 'privacy_suppressed';
       return {
         code: p.code ?? 'Unknown',
         ...(p.title && { title: p.title }),
@@ -268,9 +276,10 @@ export const getProgramsTool = tool('scorecard_get_programs', {
         ...(p.counts?.ipeds_awards1 != null && { ipeds_awards_year1: p.counts.ipeds_awards1 }),
         ...(p.counts?.ipeds_awards2 != null && { ipeds_awards_year2: p.counts.ipeds_awards2 }),
         suppressed,
+        earnings_availability: earnings.availability,
         ...(suppressed && {
           suppression_note:
-            'Earnings data suppressed — cohort too small to report under FERPA privacy rules.',
+            'The provider explicitly marks earnings as privacy-suppressed; the particular cause is not supplied.',
         }),
       };
     });
@@ -279,7 +288,9 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     const minEarnings = input.min_earnings;
     const earningsFiltered =
       minEarnings != null
-        ? programs.filter((p) => !p.suppressed && (p.earnings_1yr_median ?? 0) >= minEarnings)
+        ? programs.filter(
+            (p) => p.earnings_1yr_median != null && p.earnings_1yr_median >= minEarnings,
+          )
         : programs;
 
     if (earningsFiltered.length === 0) {
@@ -296,15 +307,18 @@ export const getProgramsTool = tool('scorecard_get_programs', {
 
     // Sort: programs with earnings first, descending by earnings
     const sorted = earningsFiltered.sort((a, b) => {
-      if (a.suppressed && !b.suppressed) return 1;
-      if (!a.suppressed && b.suppressed) return -1;
+      if (a.earnings_1yr_median == null && b.earnings_1yr_median != null) return 1;
+      if (a.earnings_1yr_median != null && b.earnings_1yr_median == null) return -1;
       return (b.earnings_1yr_median ?? 0) - (a.earnings_1yr_median ?? 0);
     });
 
     const suppressed_count = sorted.filter((p) => p.suppressed).length;
-    if (suppressed_count > 0) {
+    const unavailable_count = sorted.filter(
+      (p) => p.earnings_availability === 'unavailable',
+    ).length;
+    if (suppressed_count > 0 || unavailable_count > 0) {
       ctx.enrich.notice(
-        `${suppressed_count} of ${sorted.length} programs have suppressed earnings due to small cohorts (FERPA). These are listed last.`,
+        `${suppressed_count} programs have confirmed privacy-suppressed earnings; ${unavailable_count} have unavailable earnings of unknown cause. Programs without earnings are listed last.`,
       );
     }
 
@@ -314,18 +328,19 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       programs: sorted,
       total: sorted.length,
       suppressed_count,
+      unavailable_count,
     };
   },
 
   format: (result) => {
     const lines = [
       `## Programs at ${result.school_name} (ID: ${result.school_id})`,
-      `**Total:** ${result.total} | **Suppressed:** ${result.suppressed_count}`,
+      `**Total:** ${result.total} | **Suppressed:** ${result.suppressed_count} | **Unavailable:** ${result.unavailable_count}`,
     ];
     for (const p of result.programs) {
       lines.push(`\n**${p.code}** — ${p.title ?? 'Unknown title'} (${p.credential_level})`);
       lines.push(
-        `1-Year Earnings (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : p.suppressed ? 'Suppressed (small cohort, FERPA)' : 'Not available'}`,
+        `1-Year Earnings (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : 'Not available'} | Availability: ${p.earnings_availability} | Suppressed: ${p.suppressed}`,
       );
       if (p.suppression_note != null) lines.push(`Suppression note: ${p.suppression_note}`);
       if (p.median_debt != null)

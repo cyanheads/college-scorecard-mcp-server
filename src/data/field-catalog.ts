@@ -427,45 +427,31 @@ export const FIELD_CATALOG: FieldEntry[] = [
     sortable: true,
     category: 'earnings',
   },
-  {
-    path: 'latest.earnings.6_yrs_after_entry.percent_greater_than_100000',
-    description: 'Share earning >$100k at 6 years',
-    type: 'float',
-    sortable: false,
-    category: 'earnings',
-  },
-  {
-    path: 'latest.earnings.mean_annual_increment',
-    description: 'Mean annual earnings increment',
-    type: 'float',
-    sortable: false,
-    category: 'earnings',
-  },
 
   // Earnings percentiles
   {
-    path: 'latest.earnings.6_yrs_after_entry.percentile25',
+    path: 'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
     description: '25th percentile earnings at 6 years',
     type: 'integer',
     sortable: false,
     category: 'earnings',
   },
   {
-    path: 'latest.earnings.6_yrs_after_entry.percentile75',
+    path: 'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75',
     description: '75th percentile earnings at 6 years',
     type: 'integer',
     sortable: false,
     category: 'earnings',
   },
   {
-    path: 'latest.earnings.10_yrs_after_entry.percentile25',
+    path: 'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
     description: '25th percentile earnings at 10 years',
     type: 'integer',
     sortable: false,
     category: 'earnings',
   },
   {
-    path: 'latest.earnings.10_yrs_after_entry.percentile75',
+    path: 'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75',
     description: '75th percentile earnings at 10 years',
     type: 'integer',
     sortable: false,
@@ -474,14 +460,14 @@ export const FIELD_CATALOG: FieldEntry[] = [
 
   // Earnings by gender
   {
-    path: 'latest.earnings.6_yrs_after_entry.female_students.median_earnings',
-    description: 'Median earnings for female students at 6 years',
+    path: 'latest.earnings.6_yrs_after_entry.median_earnings_non_male',
+    description: 'Median earnings for non-male students at 6 years',
     type: 'integer',
     sortable: false,
     category: 'earnings',
   },
   {
-    path: 'latest.earnings.6_yrs_after_entry.male_students.median_earnings',
+    path: 'latest.earnings.6_yrs_after_entry.median_earnings_male',
     description: 'Median earnings for male students at 6 years',
     type: 'integer',
     sortable: false,

@@ -1,0 +1,552 @@
+{
+  "source": "https://collegescorecard.ed.gov/files/CollegeScorecardDataDictionary.xlsx",
+  "retrieved": "2026-10-14",
+  "current_context": {
+    "earnings_6yr_median": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2013-14", "2014-15"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    },
+    "earnings_6yr_p25": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2013-14", "2014-15"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    },
+    "earnings_6yr_p75": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2013-14", "2014-15"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    },
+    "earnings_8yr_median": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2011-12", "2012-13"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    },
+    "earnings_10yr_median": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2009-10", "2010-11"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    },
+    "earnings_10yr_p25": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2009-10", "2010-11"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    },
+    "earnings_10yr_p75": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2009-10", "2010-11"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    },
+    "earnings_6yr_non_male_median": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2013-14", "2014-15"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    },
+    "earnings_6yr_male_median": {
+      "data_file_year": 2020,
+      "entry_cohorts": ["2013-14", "2014-15"],
+      "measurement_years": [2020, 2021],
+      "dollar_year": 2022
+    }
+  },
+  "trend_context": {
+    "1996": {
+      "earnings_6yr_median": {
+        "data_file_year": 1996
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 1996
+      }
+    },
+    "1997": {
+      "earnings_6yr_median": {
+        "data_file_year": 1997
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 1997
+      }
+    },
+    "1998": {
+      "earnings_6yr_median": {
+        "data_file_year": 1998
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 1998
+      }
+    },
+    "1999": {
+      "earnings_6yr_median": {
+        "data_file_year": 1999
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 1999
+      }
+    },
+    "2000": {
+      "earnings_6yr_median": {
+        "data_file_year": 2000
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2000
+      }
+    },
+    "2001": {
+      "earnings_6yr_median": {
+        "data_file_year": 2001
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2001
+      }
+    },
+    "2002": {
+      "earnings_6yr_median": {
+        "data_file_year": 2002
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2002
+      }
+    },
+    "2003": {
+      "earnings_6yr_median": {
+        "data_file_year": 2003,
+        "entry_cohorts": ["1996-97", "1997-98"],
+        "measurement_years": [2003, 2004],
+        "dollar_year": 2014
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2003
+      }
+    },
+    "2004": {
+      "earnings_6yr_median": {
+        "data_file_year": 2004
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2004
+      }
+    },
+    "2005": {
+      "earnings_6yr_median": {
+        "data_file_year": 2005,
+        "entry_cohorts": ["1998-99", "1999-00"],
+        "measurement_years": [2005, 2006],
+        "dollar_year": 2014
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2005
+      }
+    },
+    "2006": {
+      "earnings_6yr_median": {
+        "data_file_year": 2006
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2006
+      }
+    },
+    "2007": {
+      "earnings_6yr_median": {
+        "data_file_year": 2007,
+        "entry_cohorts": ["2000-01", "2001-02"],
+        "measurement_years": [2007, 2008],
+        "dollar_year": 2014
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2007,
+        "entry_cohorts": ["1996-97", "1997-98"],
+        "measurement_years": [2007, 2008],
+        "dollar_year": 2014
+      }
+    },
+    "2008": {
+      "earnings_6yr_median": {
+        "data_file_year": 2008
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2008
+      }
+    },
+    "2009": {
+      "earnings_6yr_median": {
+        "data_file_year": 2009,
+        "entry_cohorts": ["2002-03", "2003-04"],
+        "measurement_years": [2009, 2010],
+        "dollar_year": 2014
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2009,
+        "entry_cohorts": ["1998-99", "1999-00"],
+        "measurement_years": [2009, 2010],
+        "dollar_year": 2014
+      }
+    },
+    "2010": {
+      "earnings_6yr_median": {
+        "data_file_year": 2010
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2010
+      }
+    },
+    "2011": {
+      "earnings_6yr_median": {
+        "data_file_year": 2011,
+        "entry_cohorts": ["2004-05", "2005-06"],
+        "measurement_years": [2011, 2012],
+        "dollar_year": 2014
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2011,
+        "entry_cohorts": ["2000-01", "2001-02"],
+        "measurement_years": [2011, 2012],
+        "dollar_year": 2014
+      }
+    },
+    "2012": {
+      "earnings_6yr_median": {
+        "data_file_year": 2012,
+        "entry_cohorts": ["2005-06", "2006-07"],
+        "measurement_years": [2012, 2013],
+        "dollar_year": 2015
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2012,
+        "entry_cohorts": ["2001-02", "2002-03"],
+        "measurement_years": [2012, 2013],
+        "dollar_year": 2015
+      }
+    },
+    "2013": {
+      "earnings_6yr_median": {
+        "data_file_year": 2013,
+        "entry_cohorts": ["2006-07", "2007-08"],
+        "measurement_years": [2013, 2014],
+        "dollar_year": 2016
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2013,
+        "entry_cohorts": ["2002-03", "2003-04"],
+        "measurement_years": [2013, 2014],
+        "dollar_year": 2016
+      }
+    },
+    "2014": {
+      "earnings_6yr_median": {
+        "data_file_year": 2014,
+        "entry_cohorts": ["2007-08", "2008-09"],
+        "measurement_years": [2014, 2015],
+        "dollar_year": 2017
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2014,
+        "entry_cohorts": ["2003-04", "2004-05"],
+        "measurement_years": [2014, 2015],
+        "dollar_year": 2017
+      }
+    },
+    "2015": {
+      "earnings_6yr_median": {
+        "data_file_year": 2015
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2015
+      }
+    },
+    "2016": {
+      "earnings_6yr_median": {
+        "data_file_year": 2016
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2016
+      }
+    },
+    "2017": {
+      "earnings_6yr_median": {
+        "data_file_year": 2017
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2017
+      }
+    },
+    "2018": {
+      "earnings_6yr_median": {
+        "data_file_year": 2018
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2018
+      }
+    },
+    "2019": {
+      "earnings_6yr_median": {
+        "data_file_year": 2019
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2019
+      }
+    },
+    "2020": {
+      "earnings_6yr_median": {
+        "data_file_year": 2020,
+        "entry_cohorts": ["2013-14", "2014-15"],
+        "measurement_years": [2020, 2021],
+        "dollar_year": 2022
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2020,
+        "entry_cohorts": ["2009-10", "2010-11"],
+        "measurement_years": [2020, 2021],
+        "dollar_year": 2022
+      }
+    },
+    "2021": {
+      "earnings_6yr_median": {
+        "data_file_year": 2021
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2021
+      }
+    },
+    "2022": {
+      "earnings_6yr_median": {
+        "data_file_year": 2022
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2022
+      }
+    },
+    "2023": {
+      "earnings_6yr_median": {
+        "data_file_year": 2023
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2023
+      }
+    },
+    "2024": {
+      "earnings_6yr_median": {
+        "data_file_year": 2024
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2024
+      }
+    },
+    "2025": {
+      "earnings_6yr_median": {
+        "data_file_year": 2025
+      },
+      "earnings_10yr_median": {
+        "data_file_year": 2025
+      }
+    }
+  },
+  "response": {
+    "metadata": {
+      "page": 0,
+      "total": 1,
+      "per_page": 20
+    },
+    "results": [
+      {
+        "2011.earnings.10_yrs_after_entry.median": 52100,
+        "2011.earnings.6_yrs_after_entry.median": 41300,
+        "latest.earnings.student_count": null,
+        "latest.earnings.10_yrs_after_entry.not_working_not_enrolled.overall": 1224,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.overall": 8699,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.mean_earnings": 69600,
+        "latest.earnings.10_yrs_after_entry.median": 78466,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.10": 16200,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.25": 50171,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75": 115782,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.90": 110400,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.std_dev": 77490,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.income.lowest_tercile": 3442,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.income.middle_tercile": 2773,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.income.highest_tercile": 2482,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.dependent_students_lowest_tercile": 1010,
+        "latest.earnings.10_yrs_after_entry.working_not_enrolled.dependent_students": 6082,
+        "latest.earnings.10_yrs_after_entry.independent_students": 2618,
+        "latest.earnings.10_yrs_after_entry.female_students": 4655,
+        "latest.earnings.10_yrs_after_entry.male_students": 4044,
+        "latest.earnings.10_yrs_after_entry.percent_greater_than_25000": 0.838,
+        "latest.earnings.10_yrs_after_entry.percent_greater_than_28000": 0.832,
+        "latest.earnings.10_yrs_after_entry.mean_earnings.lowest_tercile": 74900,
+        "latest.earnings.10_yrs_after_entry.mean_earnings.middle_tercile": 65400,
+        "latest.earnings.10_yrs_after_entry.mean_earnings.highest_tercile": 66800,
+        "latest.earnings.10_yrs_after_entry.mean_earnings.dependent_students_lowest_tercile": 57900,
+        "latest.earnings.10_yrs_after_entry.mean_earnings.dependent_students": 63500,
+        "latest.earnings.10_yrs_after_entry.mean_earnings.independent_students": 80600,
+        "latest.earnings.10_yrs_after_entry.mean_earnings.female_students": 61200,
+        "latest.earnings.10_yrs_after_entry.mean_earnings.male_students": 79500,
+        "latest.earnings.6_yrs_after_entry.not_working_not_enrolled.overall": 1031,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.overall": 9041,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.mean_earnings": 50300,
+        "latest.earnings.6_yrs_after_entry.median": 62979,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.10": 11200,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25": 39660,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75": 90996,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.90": 86600,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.std_dev": 59588,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.income.lowest_tercile": 3723,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.income.middle_tercile": 2704,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.income.highest_tercile": 2615,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.dependent_students_lowest_tercile": 856,
+        "latest.earnings.6_yrs_after_entry.working_not_enrolled.dependent_students": 6384,
+        "latest.earnings.6_yrs_after_entry.independent_students": 2656,
+        "latest.earnings.6_yrs_after_entry.female_students": 4789,
+        "latest.earnings.6_yrs_after_entry.male_students": 4251,
+        "latest.earnings.6_yrs_after_entry.percent_greater_than_25000": 0.771,
+        "latest.earnings.6_yrs_after_entry.percent_greater_than_28000": 0.755,
+        "latest.earnings.6_yrs_after_entry.mean_earnings.lowest_tercile": 50000,
+        "latest.earnings.6_yrs_after_entry.mean_earnings.middle_tercile": 50800,
+        "latest.earnings.6_yrs_after_entry.mean_earnings.highest_tercile": 50100,
+        "latest.earnings.6_yrs_after_entry.mean_earnings.dependent_students_lowest_tercile": 43000,
+        "latest.earnings.6_yrs_after_entry.mean_earnings.dependent_students": 47800,
+        "latest.earnings.6_yrs_after_entry.mean_earnings.independent_students": 55400,
+        "latest.earnings.6_yrs_after_entry.mean_earnings.female_students": 45700,
+        "latest.earnings.6_yrs_after_entry.mean_earnings.male_students": 55700,
+        "latest.earnings.7_yrs_after_entry.not_working_not_enrolled": 936,
+        "latest.earnings.7_yrs_after_entry.working_not_enrolled.overall": 8772,
+        "latest.earnings.7_yrs_after_entry.mean_earnings": 52100,
+        "latest.earnings.7_yrs_after_entry.std_dev": 58147,
+        "latest.earnings.7_yrs_after_entry.percent_greater_than_25000": 0.78143560886383,
+        "latest.earnings.8_yrs_after_entry.not_working_not_enrolled": 1083,
+        "latest.earnings.8_yrs_after_entry.working_not_enrolled": 9028,
+        "latest.earnings.8_yrs_after_entry.mean_earnings": 61000,
+        "latest.earnings.8_yrs_after_entry.median_earnings": 70968,
+        "latest.earnings.8_yrs_after_entry.10th_percentile_earnings": 13100,
+        "latest.earnings.8_yrs_after_entry.25th_percentile_earnings": 46170,
+        "latest.earnings.8_yrs_after_entry.75th_percentile_earnings": 102491,
+        "latest.earnings.8_yrs_after_entry.90th_percentile_earnings": 101900,
+        "latest.earnings.8_yrs_after_entry.std_deviation": 68437,
+        "latest.earnings.8_yrs_after_entry.percent_greater_than_25000": 0.821,
+        "latest.earnings.8_yrs_after_entry.percent_greater_than_28000": 0.801,
+        "latest.earnings.9_yrs_after_entry.not_working_not_enrolled": 1089,
+        "latest.earnings.9_yrs_after_entry.working_not_enrolled": 8355,
+        "latest.earnings.9_yrs_after_entry.mean_earnings": 57500,
+        "latest.earnings.9_yrs_after_entry.std_deviation": 60118,
+        "latest.earnings.9_yrs_after_entry.percent_greater_than_25000": 0.81826025247573,
+        "latest.earnings.3_yrs_after_completion.not_working_not_enrolled.overall_count": 684,
+        "latest.earnings.3_yrs_after_completion.working_not_enrolled.overall_count": 9896,
+        "latest.earnings.3_yrs_after_completion.overall_count_over_poverty_line": 8969,
+        "latest.earnings.consumer.median_by_pred_degree": 60377,
+        "latest.earnings.consumer.overall_median": 48560,
+        "latest.earnings.1_yr_after_completion.not_working_not_enrolled.overall_count": 613,
+        "latest.earnings.1_yr_after_completion.working_not_enrolled.overall_count": 8660,
+        "latest.earnings.1_yr_after_completion.overall_count_over_poverty_line": 7717,
+        "latest.earnings.6_yrs_after_entry.gt_threshold": 0.8266,
+        "latest.earnings.6_yrs_after_entry.gt_threshold_suppressed": 0.8266,
+        "latest.earnings.6_yrs_after_entry.median_earnings_lowest_tercile": 60605,
+        "latest.earnings.6_yrs_after_entry.median_earnings_middle_tercile": 62022,
+        "latest.earnings.6_yrs_after_entry.median_earnings_highest_tercile": 66717,
+        "latest.earnings.6_yrs_after_entry.median_earnings_independent": 70062,
+        "latest.earnings.6_yrs_after_entry.median_earnings_dependent": 60479,
+        "latest.earnings.6_yrs_after_entry.median_earnings_non_male": 58546,
+        "latest.earnings.6_yrs_after_entry.median_earnings_male": 69612,
+        "latest.earnings.8_yrs_after_entry.gt_threshold": 0.859,
+        "latest.earnings.8_yrs_after_entry.working_not_enrolled_lowest_tercile": 3730,
+        "latest.earnings.8_yrs_after_entry.median_earnings_lowest_tercile": 66698,
+        "latest.earnings.8_yrs_after_entry.working_not_enrolled_middle_tercile": 2831,
+        "latest.earnings.8_yrs_after_entry.median_earnings_middle_tercile": 72515,
+        "latest.earnings.8_yrs_after_entry.working_not_enrolled_highest_tercile": 2466,
+        "latest.earnings.8_yrs_after_entry.median_earnings_highest_tercile": 75181,
+        "latest.earnings.8_yrs_after_entry.working_not_enrolled_independent": 2660,
+        "latest.earnings.8_yrs_after_entry.median_earnings_independent": 73251,
+        "latest.earnings.8_yrs_after_entry.working_not_enrolled_dependent": 6368,
+        "latest.earnings.8_yrs_after_entry.median_earnings_dependent": 70064,
+        "latest.earnings.8_yrs_after_entry.working_not_enrolled_non_male": 4829,
+        "latest.earnings.8_yrs_after_entry.median_earnings_non_male": 67172,
+        "latest.earnings.8_yrs_after_entry.working_not_enrolled_male": 4198,
+        "latest.earnings.8_yrs_after_entry.median_earnings_male": 76529,
+        "latest.earnings.10_yrs_after_entry.gt_threshold": 0.8753,
+        "latest.earnings.10_yrs_after_entry.median_earnings.lowest_tercile": 74610,
+        "latest.earnings.10_yrs_after_entry.median_earnings.middle_tercile": 78785,
+        "latest.earnings.10_yrs_after_entry.median_earnings.highest_tercile": 82810,
+        "latest.earnings.10_yrs_after_entry.median_earnings.independent_students": 77851,
+        "latest.earnings.10_yrs_after_entry.median_earnings.dependent_students": 78612,
+        "latest.earnings.10_yrs_after_entry.median_earnings.non_male_students": 72575,
+        "latest.earnings.10_yrs_after_entry.median_earnings.male_students": 86366,
+        "latest.earnings.1_yr_after_completion.median": 53990,
+        "latest.earnings.1_yr_after_completion.overall_count_gt_hs_grad": 6616,
+        "latest.earnings.4_yrs_after_completion.not_working_not_enrolled.overall_count": 828,
+        "latest.earnings.4_yrs_after_completion.working_not_enrolled.overall_count": 8610,
+        "latest.earnings.4_yrs_after_completion.median": 82515,
+        "latest.earnings.4_yrs_after_completion.overall_count_gt_hs_grad": 8427,
+        "latest.earnings.5_yrs_after_completion.not_working_not_enrolled.overall_count": 907,
+        "latest.earnings.5_yrs_after_completion.working_not_enrolled.overall_count": 10183,
+        "latest.earnings.5_yrs_after_completion.median": 78604,
+        "latest.earnings.5_yrs_after_completion.overall_count_gt_hs_grad": 8967,
+        "latest.earnings.7_yrs_after_entry.median": 59911,
+        "latest.earnings.7_yrs_after_entry.working_not_enrolled.earnings_percentile.25": 38154,
+        "latest.earnings.7_yrs_after_entry.working_not_enrolled.earnings_percentile.75": 87542,
+        "latest.earnings.7_yrs_after_entry.working_not_enrolled.income.lowest_tercile": 3668,
+        "latest.earnings.7_yrs_after_entry.working_not_enrolled.income.middle_tercile": 2735,
+        "latest.earnings.7_yrs_after_entry.working_not_enrolled.income.highest_tercile": 2370,
+        "latest.earnings.7_yrs_after_entry.working_not_enrolled.dependent_students": 6212,
+        "latest.earnings.7_yrs_after_entry.independent_students": 2562,
+        "latest.earnings.7_yrs_after_entry.female_students": 4576,
+        "latest.earnings.7_yrs_after_entry.male_students": 4196,
+        "latest.earnings.7_yrs_after_entry.gt_threshold": 0.8063,
+        "latest.earnings.7_yrs_after_entry.median_earnings_lowest_tercile": 56966,
+        "latest.earnings.7_yrs_after_entry.median_earnings_middle_tercile": 61092,
+        "latest.earnings.7_yrs_after_entry.median_earnings_highest_tercile": 62732,
+        "latest.earnings.7_yrs_after_entry.median_earnings_independent": 64652,
+        "latest.earnings.7_yrs_after_entry.median_earnings_dependent": 58267,
+        "latest.earnings.7_yrs_after_entry.median_earnings_non_male": 56069,
+        "latest.earnings.7_yrs_after_entry.median_earnings_male": 65141,
+        "latest.earnings.9_yrs_after_entry.median_earnings": 68011,
+        "latest.earnings.9_yrs_after_entry.25th_percentile_earnings": 42823,
+        "latest.earnings.9_yrs_after_entry.75th_percentile_earnings": 99816,
+        "latest.earnings.9_yrs_after_entry.working_not_enrolled_lowest_tercile": 3349,
+        "latest.earnings.9_yrs_after_entry.working_not_enrolled_middle_tercile": 2624,
+        "latest.earnings.9_yrs_after_entry.working_not_enrolled_highest_tercile": 2384,
+        "latest.earnings.9_yrs_after_entry.working_not_enrolled_dependent": 5910,
+        "latest.earnings.9_yrs_after_entry.working_not_enrolled_independent": 2445,
+        "latest.earnings.9_yrs_after_entry.working_not_enrolled_non_male": 4474,
+        "latest.earnings.9_yrs_after_entry.working_not_enrolled_male": 3881,
+        "latest.earnings.9_yrs_after_entry.gt_threshold": 0.8324,
+        "latest.earnings.9_yrs_after_entry.median_earnings_lowest_tercile": 64377,
+        "latest.earnings.9_yrs_after_entry.median_earnings_middle_tercile": 68238,
+        "latest.earnings.9_yrs_after_entry.median_earnings_highest_tercile": 72435,
+        "latest.earnings.9_yrs_after_entry.median_earnings_dependent": 67528,
+        "latest.earnings.9_yrs_after_entry.median_earnings_independent": 69528,
+        "latest.earnings.9_yrs_after_entry.median_earnings_non_male": 62701,
+        "latest.earnings.9_yrs_after_entry.median_earnings_male": 75544,
+        "latest.earnings.11_yrs_after_entry.not_working_not_enrolled.overall": 1192,
+        "latest.earnings.11_yrs_after_entry.working_not_enrolled.overall": 8435,
+        "latest.earnings.11_yrs_after_entry.median": 74063,
+        "latest.earnings.11_yrs_after_entry.working_not_enrolled.earnings_percentile.25": 47191,
+        "latest.earnings.11_yrs_after_entry.working_not_enrolled.earnings_percentile.75": 110224,
+        "latest.earnings.11_yrs_after_entry.working_not_enrolled.std_dev": 69932,
+        "latest.earnings.11_yrs_after_entry.working_not_enrolled.income.lowest_tercile": 3279,
+        "latest.earnings.11_yrs_after_entry.working_not_enrolled.income.middle_tercile": 2804,
+        "latest.earnings.11_yrs_after_entry.working_not_enrolled.income.highest_tercile": 2350,
+        "latest.earnings.11_yrs_after_entry.working_not_enrolled.dependent_students": 6174,
+        "latest.earnings.11_yrs_after_entry.independent_students": 2261,
+        "latest.earnings.11_yrs_after_entry.female_students": 4525,
+        "latest.earnings.11_yrs_after_entry.male_students": 3910,
+        "latest.earnings.11_yrs_after_entry.gt_threshold": 0.8542,
+        "latest.earnings.11_yrs_after_entry.median_earnings.lowest_tercile": 70374,
+        "latest.earnings.11_yrs_after_entry.median_earnings.middle_tercile": 74981,
+        "latest.earnings.11_yrs_after_entry.median_earnings.highest_tercile": 77512,
+        "latest.earnings.11_yrs_after_entry.median_earnings.dependent_students": 74036,
+        "latest.earnings.11_yrs_after_entry.median_earnings.independent_students": 74148,
+        "latest.earnings.11_yrs_after_entry.median_earnings.non_male_students": 67936,
+        "latest.earnings.11_yrs_after_entry.median_earnings.male_students": 82898,
+        "latest.earnings.hsearn.threshold.state": 40611,
+        "latest.earnings.hsearn.threshold.national": 36082,
+        "latest.earnings.10_yrs_after_entry.consumer.median_by_pred_degree": 60377,
+        "latest.earnings.10_yrs_after_entry.consumer.overall_median": 48560,
+        "school.name": "University of Washington-Seattle Campus",
+        "id": 236948
+      }
+    ]
+  }
+}

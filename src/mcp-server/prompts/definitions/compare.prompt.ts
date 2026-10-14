@@ -29,7 +29,7 @@ export const comparePrompt = prompt('scorecard_compare_prompt', {
       outcomes:
         'graduation rates, median earnings at 6 and 10 years, 3-year loan repayment rate, and debt-to-earnings ratio',
       programs:
-        'program-level 1-year post-graduation median earnings by CIP code, median debt per program, and enrollment',
+        'program-level earnings 1 year after the highest credential, cumulative Stafford/Grad PLUS debt, and IPEDS awards in the two pooled debt-cohort years',
     };
     const guide = focusGuide[args.focus] ?? args.focus;
 
@@ -45,14 +45,16 @@ export const comparePrompt = prompt('scorecard_compare_prompt', {
             '',
             'Steps:',
             `1. Use scorecard_search_schools to find the unit IDs for each school.`,
-            `2. Use scorecard_compare_schools with the topic "${args.focus}" to get a normalized side-by-side comparison.`,
-            `3. For deeper context, use scorecard_get_school to retrieve full profiles.`,
             ...(args.focus === 'programs'
               ? [
-                  `4. Use scorecard_get_programs for program-level earnings at each school.`,
-                  `5. Use scorecard_lookup_cip if you need to find CIP codes for specific fields of study.`,
+                  '2. Use scorecard_lookup_cip to resolve the relevant four-digit CIP codes.',
+                  '3. Use scorecard_get_programs for each school ID and CIP code; compare matching credentials across schools.',
+                  '4. Compare returned earnings, cumulative debt, and IPEDS awards. Awards describe the two pooled debt-cohort years, not enrollment; do not invent award-year dates or values for missing metrics.',
+                  '5. Use scorecard_get_school for institutional context when needed.',
                 ]
               : [
+                  `2. Use scorecard_compare_schools with the topic "${args.focus}" to get a normalized side-by-side comparison.`,
+                  '3. For deeper context, use scorecard_get_school to retrieve full profiles.',
                   `4. Use scorecard_value_analysis for ROI metrics (debt-to-earnings ratio, net price by income bracket).`,
                 ]),
             '',

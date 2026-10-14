@@ -420,11 +420,21 @@ export const getSchoolTool = tool('scorecard_get_school', {
               ...(r['latest.earnings.6_yrs_after_entry.median'] != null && {
                 earnings_6yr_median: r['latest.earnings.6_yrs_after_entry.median'],
               }),
-              ...(r['latest.earnings.6_yrs_after_entry.percentile25'] != null && {
-                earnings_6yr_p25: r['latest.earnings.6_yrs_after_entry.percentile25'],
+              ...(r[
+                'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25'
+              ] != null && {
+                earnings_6yr_p25:
+                  r[
+                    'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25'
+                  ],
               }),
-              ...(r['latest.earnings.6_yrs_after_entry.percentile75'] != null && {
-                earnings_6yr_p75: r['latest.earnings.6_yrs_after_entry.percentile75'],
+              ...(r[
+                'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75'
+              ] != null && {
+                earnings_6yr_p75:
+                  r[
+                    'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75'
+                  ],
               }),
               ...(r['latest.earnings.8_yrs_after_entry.median_earnings'] != null && {
                 earnings_8yr_median: r['latest.earnings.8_yrs_after_entry.median_earnings'],
@@ -432,11 +442,21 @@ export const getSchoolTool = tool('scorecard_get_school', {
               ...(r['latest.earnings.10_yrs_after_entry.median'] != null && {
                 earnings_10yr_median: r['latest.earnings.10_yrs_after_entry.median'],
               }),
-              ...(r['latest.earnings.10_yrs_after_entry.percentile25'] != null && {
-                earnings_10yr_p25: r['latest.earnings.10_yrs_after_entry.percentile25'],
+              ...(r[
+                'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.25'
+              ] != null && {
+                earnings_10yr_p25:
+                  r[
+                    'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.25'
+                  ],
               }),
-              ...(r['latest.earnings.10_yrs_after_entry.percentile75'] != null && {
-                earnings_10yr_p75: r['latest.earnings.10_yrs_after_entry.percentile75'],
+              ...(r[
+                'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75'
+              ] != null && {
+                earnings_10yr_p75:
+                  r[
+                    'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75'
+                  ],
               }),
             },
     );
@@ -523,15 +543,15 @@ export const getSchoolTool = tool('scorecard_get_school', {
         lines.push('\n**Outcomes**');
         lines.push(`Completion Rate (150%): ${fmtPct(s.completion_rate)}`);
         lines.push(`Median Earnings (6yr): ${fmt(s.earnings_6yr_median, '$')}`);
-        if (s.earnings_6yr_p25 != null)
+        if (s.earnings_6yr_p25 != null || s.earnings_6yr_p75 != null)
           lines.push(
-            `Earnings P25/P75 (6yr): $${s.earnings_6yr_p25.toLocaleString()} / $${s.earnings_6yr_p75?.toLocaleString() ?? 'N/A'}`,
+            `Earnings P25/P75 (6yr): ${s.earnings_6yr_p25 != null ? `$${s.earnings_6yr_p25.toLocaleString()}` : 'N/A'} / ${s.earnings_6yr_p75 != null ? `$${s.earnings_6yr_p75.toLocaleString()}` : 'N/A'}`,
           );
         lines.push(`Median Earnings (8yr): ${fmt(s.earnings_8yr_median, '$')}`);
         lines.push(`Median Earnings (10yr): ${fmt(s.earnings_10yr_median, '$')}`);
-        if (s.earnings_10yr_p25 != null)
+        if (s.earnings_10yr_p25 != null || s.earnings_10yr_p75 != null)
           lines.push(
-            `Earnings P25/P75 (10yr): $${s.earnings_10yr_p25.toLocaleString()} / $${s.earnings_10yr_p75?.toLocaleString() ?? 'N/A'}`,
+            `Earnings P25/P75 (10yr): ${s.earnings_10yr_p25 != null ? `$${s.earnings_10yr_p25.toLocaleString()}` : 'N/A'} / ${s.earnings_10yr_p75 != null ? `$${s.earnings_10yr_p75.toLocaleString()}` : 'N/A'}`,
           );
       }
     }

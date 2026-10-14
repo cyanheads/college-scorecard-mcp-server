@@ -87,12 +87,12 @@ const PROFILE_DEFAULT_FIELDS = [
   'latest.repayment.repayment_cohort.3_year_declining_balance',
   'latest.completion.rate_suppressed.overall',
   'latest.earnings.6_yrs_after_entry.median',
-  'latest.earnings.6_yrs_after_entry.percentile25',
-  'latest.earnings.6_yrs_after_entry.percentile75',
+  'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
+  'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75',
   'latest.earnings.8_yrs_after_entry.median_earnings',
   'latest.earnings.10_yrs_after_entry.median',
-  'latest.earnings.10_yrs_after_entry.percentile25',
-  'latest.earnings.10_yrs_after_entry.percentile75',
+  'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
+  'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75',
 ].join(',');
 
 /** Default fields for earnings time series */
@@ -100,14 +100,14 @@ const EARNINGS_DEFAULT_FIELDS = [
   'id',
   'school.name',
   'latest.earnings.6_yrs_after_entry.median',
-  'latest.earnings.6_yrs_after_entry.percentile25',
-  'latest.earnings.6_yrs_after_entry.percentile75',
+  'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
+  'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75',
   'latest.earnings.8_yrs_after_entry.median_earnings',
   'latest.earnings.10_yrs_after_entry.median',
-  'latest.earnings.10_yrs_after_entry.percentile25',
-  'latest.earnings.10_yrs_after_entry.percentile75',
-  'latest.earnings.6_yrs_after_entry.female_students.median_earnings',
-  'latest.earnings.6_yrs_after_entry.male_students.median_earnings',
+  'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
+  'latest.earnings.10_yrs_after_entry.working_not_enrolled.earnings_percentile.75',
+  'latest.earnings.6_yrs_after_entry.median_earnings_non_male',
+  'latest.earnings.6_yrs_after_entry.median_earnings_male',
 ].join(',');
 
 /** Fields for program-level data */
@@ -353,9 +353,14 @@ export class ScorecardService {
     ctx: Context,
   ): Promise<ScorecardApiResponse> {
     id = normalizeSchoolId(id);
+    if (years.some((year) => !Number.isInteger(year) || year < 1996 || year > 2025))
+      throw validationError(
+        'Earnings years must be published data-file start years from 1996 through 2025.',
+        { reason: 'api_validation', ...ctx.recoveryFor('api_validation') },
+      );
     const yearFields =
       years.length > 0
-        ? years
+        ? [...new Set(years)]
             .flatMap((y) => [
               `${y}.earnings.6_yrs_after_entry.median`,
               `${y}.earnings.10_yrs_after_entry.median`,
@@ -377,6 +382,7 @@ export class ScorecardService {
     options: {
       cipCode?: string | undefined;
       programName?: string;
+      credentialLevel?: number;
       state?: string | undefined;
       ownership?: number;
       maxNetPrice?: number;
@@ -406,6 +412,8 @@ export class ScorecardService {
 
     if (options.cipCode)
       params['latest.programs.cip_4_digit.code'] = options.cipCode.replace('.', '');
+    if (options.credentialLevel != null)
+      params['latest.programs.cip_4_digit.credential.level'] = options.credentialLevel;
     if (options.state) params['school.state'] = options.state;
     if (options.ownership != null) params['school.ownership'] = options.ownership;
     if (options.maxNetPrice != null)
@@ -450,8 +458,8 @@ export class ScorecardService {
     const earningsFields = [
       'id',
       'latest.earnings.6_yrs_after_entry.median',
-      'latest.earnings.6_yrs_after_entry.percentile25',
-      'latest.earnings.6_yrs_after_entry.percentile75',
+      'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
+      'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75',
       'latest.earnings.8_yrs_after_entry.median_earnings',
       'latest.earnings.10_yrs_after_entry.median',
     ].join(',');

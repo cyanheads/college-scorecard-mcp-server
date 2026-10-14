@@ -101,15 +101,18 @@ describe('getProgramsTool', () => {
     expect(result.programs.map((p) => p.code)).toEqual(['1107', '5202', '1107']);
     expect(result.programs[0]!.earnings_1yr_median).toBe(101710);
     expect(result.programs[0]!.suppressed).toBe(false);
-    expect(result.suppressed_count).toBe(1);
+    expect(result.suppressed_count).toBe(0);
+    expect(result.unavailable_count).toBe(1);
   });
 
-  it('marks program as suppressed when earnings are missing', async () => {
+  it('marks missing earnings unavailable without inventing suppression', async () => {
     serve([{ ...csBachelors, earnings: null }]);
     const result = await getPrograms({ id: SCHOOL_ID });
-    expect(result.programs[0]!.suppressed).toBe(true);
-    expect(result.programs[0]!.suppression_note).toBeDefined();
-    expect(result.suppressed_count).toBe(1);
+    expect(result.programs[0]!.suppressed).toBe(false);
+    expect(result.programs[0]!.suppression_note).toBeUndefined();
+    expect(result.programs[0]!.earnings_availability).toBe('unavailable');
+    expect(result.suppressed_count).toBe(0);
+    expect(result.unavailable_count).toBe(1);
   });
 
   it('throws school_not_found when no record comes back for the ID', async () => {
@@ -173,7 +176,8 @@ describe('getProgramsTool', () => {
     const result = await getPrograms({ id: SCHOOL_ID });
     expect(result.programs[0]!.earnings_1yr_median).toBeUndefined();
     expect(result.programs[0]!.median_debt).toBeUndefined();
-    expect(result.programs[0]!.suppressed).toBe(true);
+    expect(result.programs[0]!.suppressed).toBe(false);
+    expect(result.programs[0]!.earnings_availability).toBe('unavailable');
   });
 
   it('formats output with earnings, debt, and suppression note', () => {
@@ -190,6 +194,7 @@ describe('getProgramsTool', () => {
           ipeds_awards_year1: 400,
           ipeds_awards_year2: 410,
           suppressed: false,
+          earnings_availability: 'available' as const,
         },
         {
           code: '5138',
@@ -197,12 +202,13 @@ describe('getProgramsTool', () => {
             'Registered Nursing, Nursing Administration, Nursing Research and Clinical Nursing.',
           credential_level: "Bachelor's",
           suppressed: true,
-          suppression_note:
-            'Earnings data suppressed — cohort too small to report under FERPA privacy rules.',
+          earnings_availability: 'privacy_suppressed' as const,
+          suppression_note: 'Earnings are explicitly privacy-suppressed by the provider.',
         },
       ],
       total: 2,
       suppressed_count: 1,
+      unavailable_count: 0,
     };
     const blocks = getProgramsTool.format!(output);
     expect(blocks[0]!.type).toBe('text');
@@ -211,7 +217,7 @@ describe('getProgramsTool', () => {
     expect(text).toContain('72,000');
     expect(text).toContain('18,000');
     expect(text).toContain('Suppression note');
-    expect(text).toContain('FERPA');
+    expect(text).toContain('privacy_suppressed');
   });
 
   describe('credential levels', () => {

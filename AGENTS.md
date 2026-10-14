@@ -179,6 +179,12 @@ await createApp({
 
 This server declares `sessionMode: 'stateless'` in `src/index.ts`: no tool calls `ctx.requestInput`, so no request depends on a live session.
 
+### Scorecard metric semantics
+
+Institution earnings cover federally aided undergraduate entrants working and not enrolled, regardless of completion. Earnings `years` is the published API data-file start-year domain 1996–2025, not an entry-year selector. `src/data/earnings-context.ts` holds official per-metric cohort/measurement/dollar provenance; refresh it from the dictionary when coverage changes, never infer vintage by arithmetic or sample equality.
+
+`readMetric` distinguishes numbers (including zero), unknown-cause null/absence, and explicit `PS` / `PrivacySuppressed` markers. Suppression flags/counts require the latter; unexpected values are provider contract failures. CIP lookup remains a curated set of current NCES four-digit groups, with exact group/family titles and verified descendant aliases. Program search applies CIP × credential together upstream before school pagination; totals remain school-level.
+
 ---
 
 ## Context
