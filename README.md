@@ -29,7 +29,7 @@
 
 ## Overview
 
-U.S. college data from the Department of Education College Scorecard API — costs, earnings, programs, and outcomes across roughly 6,500 Title IV institutions. Search and compare schools, look up program-level earnings by field of study, and compute ROI metrics like debt-to-earnings ratio from any MCP client. Runs as a stdio process, a local Streamable HTTP server, or the public hosted endpoint above.
+US college data from the Department of Education College Scorecard: costs, earnings, programs, and outcomes across roughly 6,500 institutions. Search and compare schools, look up earnings by field of study, and compute ROI metrics like debt-to-earnings ratio.
 
 ### Tools
 
@@ -42,7 +42,7 @@ U.S. college data from the Department of Education College Scorecard API — cos
 | `scorecard_search_programs` | Find programs by CIP and credential or keyword, retain degree identity, and rank earnings within each fetched school page. |
 | `scorecard_get_earnings` | Earnings of federally aided undergraduate entrants working and not enrolled, regardless of completion: 6/8/10-year medians, 6/10-year P25/P75, and non-male/male 6-year medians. |
 | `scorecard_value_analysis` | Workflow tool: parallel-fetches cost, debt, repayment, and earnings data, then computes ROI metrics — debt-to-earnings ratio and net price to earnings ratio. |
-| `scorecard_lookup_cip` | Search 186 curated NCES CIP 2020 four-digit groups by code, keyword, or verified descendant alias. Served offline. |
+| `scorecard_lookup_cip` | Search 186 curated NCES CIP 2020 four-digit groups by code, keyword, or related program name. Served offline. |
 | `scorecard_list_fields` | Search the Scorecard field catalog by keyword. Returns matching field paths, descriptions, data types, and sort support. Use before passing custom `fields` parameters. |
 
 ### Resources
@@ -64,70 +64,70 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 
 ### `scorecard_search_schools` <sub>tool</sub>
 
-- Search by name, state, ownership, degree level, size, acceptance rate, CIP code, or ZIP and distance; `per_page` is capped at 100 with zero-indexed `page`. State lists accept `WA,CA` and case variants. ZIP-only queries use the provider default radius; ZIP+4 and nonnegative decimal radii (bare miles, `mi`, or `km`) are supported. Reversed range bounds normalize to ascending order.
+- Search by name, state, ownership, degree level, size, acceptance rate, CIP code, or ZIP and distance (miles or `km`). `per_page` is capped at 100; `page` is zero-indexed. State lists accept `WA,CA`.
 - Returns core identity and cost metrics for quick scanning.
-- `sort` forwards a supported API expression such as `latest.cost.avg_net_price.overall:asc` (`:desc` reverses it). `men_only` and `women_only` accept true or false; omission includes unknown flags, while false selects only explicit zero values.
+- `sort` takes an API expression such as `latest.cost.avg_net_price.overall:asc` (`:desc` reverses it). `men_only` and `women_only` accept true or false.
 
 ---
 
 ### `scorecard_get_school` <sub>tool</sub>
 
-- Accepts a positive safe integer school ID or an array of up to 1,000 elements. Base-10 strings accept whitespace, leading zeros, plus, decimal, and exponent forms when they resolve to a positive safe integer. IDs are deduplicated before the first 100 distinct IDs are fetched; `missing_ids` identifies processed IDs without records, and `unprocessed_ids` identifies unchecked excess.
-- Default profiles cover costs, admissions, outcomes, financial aid, demographics, and completion rates. Custom `fields` returns real ID/name plus `selected_fields` containing requested JSON values, including null, zero, false, and nested arrays. Program leaf projections retain the provider's parent subtree under `latest.programs.cip_4_digit`, preserving sparse rows and array positions; `absent_fields` lists requested paths omitted from that response. Unrequested profile metrics are omitted.
-- HBCU status reads `school.minority_serving.historically_black`; HBCU and single-sex flags preserve true/false when known and remain unknown when absent/null.
+- Accepts a school ID or an array of up to 1,000. The first 100 distinct IDs are fetched; `missing_ids` lists fetched IDs with no record and `unprocessed_ids` lists the excess.
+- Default profiles cover costs, admissions, outcomes, financial aid, demographics, and completion rates. Custom `fields` returns `selected_fields` with the requested values, and `absent_fields` lists requested paths missing from the response.
+- HBCU and single-sex flags are true/false when known and unknown when absent.
 
 ---
 
 ### `scorecard_compare_schools` <sub>tool</sub>
 
 - Accepts 2–5 school unit IDs and one topic: `costs`, `admissions`, `outcomes`, or `aid`.
-- Returns metric values and competition ranks from one API call: equal values share a rank (1, 1, 3), unavailable values are unranked, and summaries name tied leaders. Each cell's `availability` distinguishes available, unavailable with unknown cause, and confirmed privacy suppression.
+- Returns metric values and ranks from one API call: equal values share a rank (1, 1, 3) and unavailable values are unranked.
+- Each cell's `availability` distinguishes available, unavailable, and privacy-suppressed values.
 
 ---
 
 ### `scorecard_get_programs` <sub>tool</sub>
 
-- Accepts one school ID, with optional CIP code, `credential_level`, and minimum earnings filters.
-- Existing schools with no reported or matching programs return a successful empty collection; a nonexistent school remains a lookup error. Dotted and undotted four-digit CIP codes are equivalent.
-- Returns median earnings and the matching count of graduates working and not enrolled 1 year after their highest credential. `earnings_availability` is `available`, `unavailable`, or `privacy_suppressed`; zero is available, null/absence has unknown cause, and only explicit provider privacy markers set `suppressed`. `suppressed_count` and `unavailable_count` distinguish those populations.
-- `median_debt` is completers' cumulative Stafford/Grad PLUS borrowing across attended institutions at the same academic level. `ipeds_awards_year1` and `ipeds_awards_year2` count awards in each year of the pooled debt cohort, not enrollment or unique students.
+- Accepts one school ID, with optional CIP code (dotted or undotted), `credential_level`, and minimum earnings filters. A school with no matching programs returns an empty collection; a nonexistent school is a lookup error.
+- Returns median earnings and graduate counts 1 year after the highest credential. `earnings_availability` is `available`, `unavailable`, or `privacy_suppressed`, with `suppressed_count` and `unavailable_count`.
+- `median_debt` is completers' cumulative Stafford/Grad PLUS borrowing. `ipeds_awards_year1` and `ipeds_awards_year2` count awards in each year of the pooled debt cohort, not students.
 
 ---
 
 ### `scorecard_search_programs` <sub>tool</sub>
 
-- Search by CIP code or program name, with optional integer `credential_level`, state, ownership, net price, earnings, and debt filters; zero-indexed `page` and `per_page` (up to 100) paginate schools, so returned program rows may exceed `per_page`. CIP and credential selectors apply together upstream before pagination; credential codes are 1–8 and 99, and unknown integer selectors may return no matches.
-- Returns school IDs and names alongside program metrics and provider `credential_level` / `credential_title`, retaining separate credentials and future numeric credential levels; missing identity fields stay absent. Available earnings sort first; availability states and counts have the same meaning as in `scorecard_get_programs`.
-- `min_earnings` filters locally; totals and pagination remain upstream school counts before local filtering. Earnings/debt thresholds are inclusive and exclude unknown values. Debt and award fields have the same meanings as in `scorecard_get_programs`.
+- Search by CIP code or program name, with optional integer `credential_level` (1–8 and 99), state, ownership, net price, earnings, and debt filters. Zero-indexed `page` and `per_page` (up to 100) paginate schools, so returned program rows may exceed `per_page`.
+- Returns school IDs and names with program metrics, `credential_level`, and `credential_title`. Available earnings sort first; availability, debt, and award fields match `scorecard_get_programs`.
+- `min_earnings` filters locally, so totals and pagination are upstream school counts before filtering. Earnings and debt thresholds are inclusive and exclude unknown values.
 
 ---
 
 ### `scorecard_get_earnings` <sub>tool</sub>
 
-- Accepts one school ID and optional API data-file start `years` from 1996–2025. These are file vintages, not entry years; valid files without observations succeed. Omit `years` or pass `[]` for snapshot only.
-- Institution earnings cover federally aided undergraduate entrants working and not enrolled, regardless of completion. Returns medians at 6/8/10 years after entry, 6/10-year P25/P75, and non-male/male 6-year medians.
-- `current_availability` and `trend[].availability` classify each supported metric; aggregate `suppressed` requires every current metric to carry an explicit privacy marker. Null and omitted values do not prove suppression.
-- `current_context` and `trend[].context` give per-metric `data_file_year`, verified academic `entry_cohorts`, calendar `measurement_years`, and inflation `dollar_year`. Metadata comes from the official cohort maps; unknown parts are omitted. Values retain the provider's dollar basis, so cross-vintage comparisons require checking it. Each requested file adds six- and ten-year medians without extra requests.
+- Accepts one school ID and optional data-file start `years` from 1996–2025 (file vintages, not entry years). Omit `years` or pass `[]` for the snapshot only.
+- Covers federally aided undergraduate entrants working and not enrolled, regardless of completion: medians at 6/8/10 years after entry, 6/10-year P25/P75, and non-male/male 6-year medians.
+- `current_availability` and `trend[].availability` classify each metric. `current_context` and `trend[].context` give `data_file_year`, `entry_cohorts`, `measurement_years`, and `dollar_year`; values keep the provider's dollar basis, so check it before comparing across vintages.
 
 ---
 
 ### `scorecard_value_analysis` <sub>tool</sub>
 
 - Accepts one school ID; optional `family_income` selects the applicable net price bracket ($0–30k, $30k–48k, $48k–75k, $75k–110k, or $110k+).
-- Returns ratios alongside their source figures. `effective_net_price` discloses the price used, and `net_price_basis` is `income_bracket`, `overall`, or `unavailable`. A missing bracket preserves requested `family_income` / `applicable_income_bracket` and explains the established overall-price fallback in `data_notes`. Zero estimates remain valid; ratios require positive annual earnings.
+- Returns ratios alongside their source figures. `effective_net_price` is the price used, and `net_price_basis` is `income_bracket`, `overall`, or `unavailable`.
+- If the bracket is missing, the overall price is used and `data_notes` says so. Ratios require positive annual earnings.
 
 ---
 
 ### `scorecard_lookup_cip` <sub>tool</sub>
 
-- Search by nonblank keyword or partial name (default limit 20); requests up to 1,000 are accepted and served at a cap of 50. Totals count before slicing; exact-cap results are not truncated, and no matches return an empty collection with guidance.
-- Dotted `11.07` and undotted `1107` queries are equivalent. Returns exact group titles and family identities from 186 current NCES CIP 2020 four-digit groups; verified six-digit descendant names act as keyword aliases, returning their canonical group. This curated set is a subset of the full taxonomy.
+- Search by nonblank keyword or partial name (default limit 20, capped at 50). Dotted `11.07` and undotted `1107` are equivalent.
+- Returns exact group titles and family identities from 186 current NCES CIP 2020 four-digit groups, a subset of the full taxonomy. Related six-digit program names also match and return their group; no matches return an empty collection with guidance.
 
 ---
 
 ### `scorecard_list_fields` <sub>tool</sub>
 
-- Search 78 curated offline field entries by nonblank query (default limit 30); requests up to 1,000 are accepted and served at a cap of 100. Totals count before slicing; no matches return an empty collection with guidance. Use before passing custom `fields` to `scorecard_get_school`.
+- Search 78 curated offline field entries by nonblank query (default limit 30, capped at 100). Use before passing custom `fields` to `scorecard_get_school`.
 - Returns field paths, descriptions, data types, categories, and API sorting support; `tip` flags results containing unsortable fields.
 
 ---
@@ -151,7 +151,7 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 ### `scorecard_compare_prompt` <sub>prompt</sub>
 
 - Arguments: `school_names` (comma-separated list) and `focus` (`costs` | `outcomes` | `programs`), both required
-- Costs/outcomes sequence school discovery, `scorecard_compare_schools`, profiles, and value analysis. Programs sequence school discovery, CIP lookup, and `scorecard_get_programs` per school; compare matching credentials using returned earnings, cumulative debt, and IPEDS awards in the two pooled debt-cohort years. Missing values and award-year dates remain unknown.
+- `costs` and `outcomes` run school discovery, `scorecard_compare_schools`, profiles, and value analysis. `programs` runs school discovery, CIP lookup, and `scorecard_get_programs` per school, then compares earnings, debt, and IPEDS awards for matching credentials.
 
 ## Features
 
@@ -167,12 +167,10 @@ College Scorecard-specific:
 
 Agent-friendly output:
 
-- Availability distinguishes numbers (including zero), unknown-cause missing values, and explicit `PS` / `PrivacySuppressed` provider markers. Confirmed privacy suppression does not identify its particular cause.
-- Derived metrics alongside source figures in `scorecard_value_analysis` — agents can verify arithmetic and branch on computed values, not raw numbers
-- Ordinal ranks in `scorecard_compare_schools` place each school's metric values within the comparison set
-- School sorting uses indexed API fields; check `scorecard_list_fields` before choosing a sort expression. Six-year earnings does not support API sorting. Program earnings ordering applies within each fetched school page.
-- Searches echo normalized effective selectors and pagination defaults on both output surfaces, distinguishing no upstream matches, exhausted pages, and locally filtered program pages. Blank optional selectors are unset; CIP precedence omits an ignored program name from the echo.
-- Provider failures retain safe status/detail with distinct validation, authentication, throttling, timeout, and availability reasons. Permanent validation/authentication failures are not retried; resource failures include recovery and a request ID. Availability uses `api_error`; cancellation remains `RequestCancelled`.
+- Availability distinguishes numbers (including zero), missing values, and explicit `PS` / `PrivacySuppressed` provider markers
+- Derived metrics sit alongside source figures in `scorecard_value_analysis`, and `scorecard_compare_schools` adds ordinal ranks
+- School sorting uses indexed API fields; check `scorecard_list_fields` before choosing a sort expression. Six-year earnings does not support API sorting.
+- Provider failures report distinct validation, authentication, throttling, timeout, and availability reasons; availability uses `api_error` and cancellation remains `RequestCancelled`
 
 ## Getting started
 
@@ -295,15 +293,15 @@ All configuration is validated at startup via Zod schemas in `src/config/server-
 
 | Variable | Description | Default |
 |:---|:---|:---|
-| `SCORECARD_API_KEY` | **Required.** API key from [api.data.gov](https://api.data.gov/signup/). 1,000 req/hour rate limit. | — |
+| `SCORECARD_API_KEY` | **Required.** API key from [api.data.gov](https://api.data.gov/signup/) (1,000 req/hour). | — |
 | `MCP_TRANSPORT_TYPE` | Transport: `stdio` or `http` | `stdio` |
 | `MCP_HTTP_PORT` | HTTP server port | `3010` |
 | `MCP_HTTP_ENDPOINT_PATH` | HTTP endpoint path where the MCP server is mounted | `/mcp` |
 | `MCP_PUBLIC_URL` | Public origin override for TLS-terminating reverse-proxy deployments | none |
-| `MCP_SESSION_MODE` | HTTP session mode: `stateless`, `stateful`, or `auto`. The server declares `stateless` in code; an explicit env value overrides it. | `stateless` |
+| `MCP_SESSION_MODE` | HTTP session mode: `stateless`, `stateful`, or `auto` | `stateless` |
 | `MCP_AUTH_MODE` | Authentication: `none`, `jwt`, or `oauth` | `none` |
 | `MCP_LOG_LEVEL` | Log level (`debug`, `info`, `warning`, `error`, etc.) | `info` |
-| `MCP_GC_PRESSURE_INTERVAL_MS` | Opt-in forced-GC pressure loop (ms, Bun only). Try `60000` if heap growth is observed under sustained HTTP load. | `0` (disabled) |
+| `MCP_GC_PRESSURE_INTERVAL_MS` | Opt-in forced-GC loop interval in ms (Bun only); try `60000` if heap grows under HTTP load | `0` (disabled) |
 | `LOGS_DIR` | Directory for log files (Node.js only) | `<project-root>/logs` |
 | `STORAGE_PROVIDER_TYPE` | Storage backend: `in-memory`, `filesystem`, `supabase`, `cloudflare-kv/r2/d1` | `in-memory` |
 | `OTEL_ENABLED` | Enable [OpenTelemetry instrumentation](https://github.com/cyanheads/mcp-ts-core/tree/main/docs/telemetry) | `false` |
