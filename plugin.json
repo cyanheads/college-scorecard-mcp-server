@@ -1,0 +1,30 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "college-scorecard-mcp-server",
+  "version": "0.4.0",
+  "description": "Search, compare, and analyze U.S. college data \u2014 costs, earnings, programs, and outcomes \u2014 via MCP. STDIO or Streamable HTTP.",
+  "author": {
+    "name": "Casey Hand",
+    "email": "casey@caseyjhand.com",
+    "url": "https://caseyjhand.com"
+  },
+  "homepage": "https://github.com/cyanheads/college-scorecard-mcp-server#readme",
+  "repository": "https://github.com/cyanheads/college-scorecard-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "stdio",
+    "streamable-http",
+    "college-scorecard",
+    "higher-education",
+    "department-of-education",
+    "college-search",
+    "university-data",
+    "financial-aid",
+    "student-outcomes",
+    "student-earnings",
+    "college-comparison"
+  ]
+}
