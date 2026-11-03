@@ -4,7 +4,7 @@
  */
 
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { createMockContext } from '@cyanheads/mcp-ts-core/testing';
+import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EARNINGS_FIELDS, LATEST_EARNINGS_CONTEXT } from '@/data/earnings-context.js';
 import { getEarningsTool } from '@/mcp-server/tools/definitions/get-earnings.tool.js';
@@ -37,6 +37,44 @@ const makeEarningsResult = (overrides: Record<string, unknown> = {}) => ({
 describe('getEarningsTool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('renders independently verified 2022 provenance for latest and historical metrics', async () => {
+    mockGetSchoolEarnings.mockResolvedValue(makeEarningsResult());
+    const result = await runToolContract(getEarningsTool, {
+      id: 236948,
+      years: [2020, 2021, 2022],
+    });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      current_context: {
+        earnings_6yr_median: {
+          data_file_year: 2022,
+          entry_cohorts: ['2015-16', '2016-17'],
+          measurement_years: [2022, 2023],
+          dollar_year: 2024,
+        },
+        earnings_8yr_median: { data_file_year: 2022, entry_cohorts: ['2013-14', '2014-15'] },
+        earnings_10yr_median: { data_file_year: 2022, entry_cohorts: ['2011-12', '2012-13'] },
+      },
+      trend: [
+        {
+          year: 2020,
+          context: { earnings_6yr_median: { data_file_year: 2020, dollar_year: 2022 } },
+        },
+        { year: 2021, context: { earnings_6yr_median: { data_file_year: 2021 } } },
+        {
+          year: 2022,
+          context: { earnings_6yr_median: { data_file_year: 2022, dollar_year: 2024 } },
+        },
+      ],
+    });
+    const text = result.content
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).toContain(
+      'Data-file year: 2022 | Entry cohorts: 2015-16, 2016-17 | Measurement years: 2022, 2023 | Dollar year: 2024',
+    );
   });
 
   it('returns earnings for a valid school ID', async () => {
@@ -136,10 +174,10 @@ describe('getEarningsTool', () => {
     expect(text).toContain('6-Year Median');
     expect(text).toContain('10-Year Median');
     expect(text).toContain(
-      '6-Year Median: available | Data-file year: 2020 | Entry cohorts: 2013-14, 2014-15 | Measurement years: 2020, 2021 | Dollar year: 2022',
+      '6-Year Median: available | Data-file year: 2022 | Entry cohorts: 2015-16, 2016-17 | Measurement years: 2022, 2023 | Dollar year: 2024',
     );
     expect(text).toContain(
-      '8-Year Median: available | Data-file year: 2020 | Entry cohorts: 2011-12, 2012-13',
+      '8-Year Median: available | Data-file year: 2022 | Entry cohorts: 2013-14, 2014-15',
     );
     expect(text).not.toContain('{"earnings_');
   });

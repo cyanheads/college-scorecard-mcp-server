@@ -6,6 +6,13 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import {
+  InstitutionContextSchema,
+  InstitutionCostsSchema,
+  institutionContext,
+  institutionCosts,
+} from '@/mcp-server/institution-context.js';
 import { SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
 import { readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
@@ -46,6 +53,8 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
   }),
 
   output: z.object({
+    ...InstitutionContextSchema.shape,
+    ...InstitutionCostsSchema.shape,
     school_id: z.number().describe('School unit ID.'),
     school_name: z.string().describe('Institution name.'),
     family_income: z.number().optional().describe('Requested annual family income in dollars.'),
@@ -62,7 +71,9 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     list_price: z
       .number()
       .optional()
-      .describe('Full tuition and fees (in-state, or out-of-state when no in-state exists).'),
+      .describe(
+        'Effective tuition and fees; see tuition_basis for academic-year or program-year period.',
+      ),
     net_price_overall: z
       .number()
       .optional()
@@ -219,7 +230,8 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     // Extract values
     const inStateTuition = costRecord['latest.cost.tuition.in_state'];
     const outOfStateTuition = costRecord['latest.cost.tuition.out_of_state'];
-    const list_price = inStateTuition ?? outOfStateTuition ?? undefined;
+    const costs = institutionCosts(costRecord);
+    const list_price = costs.effective_tuition;
 
     const net_price_overall = costRecord['latest.cost.avg_net_price.overall'] ?? undefined;
 
@@ -293,14 +305,8 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       data_notes.push(
         `Net price for requested bracket ${applicable_income_bracket} is unavailable; ${net_price_overall != null ? 'using overall net price' : 'overall net price is also unavailable'}.`,
       );
-    if (list_price == null)
-      data_notes.push(
-        'Tuition/fees not reported — school may be tuition-free or data unavailable.',
-      );
-    if (net_price_overall == null)
-      data_notes.push(
-        'Net price not reported — institution may not participate in Title IV aid programs.',
-      );
+    if (list_price == null) data_notes.push('Tuition/fees unavailable; cause not supplied.');
+    if (net_price_overall == null) data_notes.push('Net price unavailable; cause not supplied.');
     if (median_debt == null) data_notes.push('Median debt unavailable; cause not supplied.');
     if (earnings_6yr_median == null)
       data_notes.push(
@@ -316,8 +322,13 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     if (inStateTuition == null && outOfStateTuition != null) {
       data_notes.push('No in-state tuition — using out-of-state tuition as list price.');
     }
+    data_notes.push(
+      'Campus prices are combined with OPEID6-pooled earnings, debt, and repayment outcomes; these outcomes are not campus-specific.',
+    );
 
     return {
+      ...institutionContext(costRecord),
+      ...costs,
       school_id: schoolId,
       school_name: schoolName,
       ...(input.family_income != null && { family_income: input.family_income }),
@@ -339,7 +350,23 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
   },
 
   format: (result) => {
-    const lines = [`## Value Analysis: ${result.school_name} (ID: ${result.school_id})`];
+    const lines = [
+      `## Value Analysis\n${escapeMarkdownInline(result.school_name)} (ID: ${result.school_id})`,
+    ];
+    if (result.ope6_id != null) lines.push(`OPEID6: ${escapeMarkdownInline(result.ope6_id)}`);
+    if (result.metric_scope) lines.push(`Metric scope: ${JSON.stringify(result.metric_scope)}`);
+    if (result.effective_tuition != null)
+      lines.push(
+        `Effective tuition: $${result.effective_tuition.toLocaleString()} (basis: ${result.tuition_basis})`,
+      );
+    if (result.tuition_program_year != null)
+      lines.push(`Program-year tuition: $${result.tuition_program_year.toLocaleString()}`);
+    if (result.cost_of_attendance != null)
+      lines.push(
+        `Cost of attendance: $${result.cost_of_attendance.toLocaleString()} (basis: ${result.attendance_basis})`,
+      );
+    if (result.attendance_program_year != null)
+      lines.push(`Program-year attendance: $${result.attendance_program_year.toLocaleString()}`);
 
     lines.push('\n**Cost**');
     if (result.family_income != null)
@@ -378,15 +405,7 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     lines.push('\n**Derived ROI Metrics**');
     if (result.debt_to_earnings_ratio != null) {
       const dter = result.debt_to_earnings_ratio;
-      const assessment =
-        dter <= 0.5
-          ? 'Low (manageable)'
-          : dter <= 1.0
-            ? 'Moderate'
-            : dter <= 2.0
-              ? 'High'
-              : 'Very high';
-      lines.push(`Debt-to-Earnings Ratio: ${dter.toFixed(2)}x (${assessment})`);
+      lines.push(`Debt-to-Earnings Ratio: ${dter.toFixed(2)}x`);
     }
     if (result.net_price_to_annual_earnings != null) {
       lines.push(`Net Price / Annual Earnings: ${result.net_price_to_annual_earnings.toFixed(2)}x`);

@@ -13,7 +13,9 @@ import {
 } from '@cyanheads/mcp-ts-core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { searchFieldCatalog } from '@/data/field-catalog.js';
+import { PROGRAM_METRIC_SCOPE, PROGRAM_PROVENANCE } from '@/data/program-provenance.js';
 import { getProgramsTool } from '@/mcp-server/tools/definitions/get-programs.tool.js';
+import { programOutcomes } from '@/services/scorecard/program-outcomes.js';
 import { initScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 const SCHOOL_ID = 236948;
@@ -24,7 +26,10 @@ const csBachelors = {
   code: '1107',
   title: 'Computer Science.',
   credential: { level: 3, title: "Bachelor's Degree" },
-  earnings: { highest: { '1_yr': { overall_median_earnings: 101710 } } },
+  earnings: {
+    highest: { '1_yr': { overall_median_earnings: 101710 } },
+    '1_yr': { overall_median_earnings: 128218 },
+  },
 };
 const csMasters = {
   code: '1107',
@@ -42,7 +47,10 @@ const businessBachelors = {
   code: '5202',
   title: 'Business Administration, Management and Operations.',
   credential: { level: 3, title: "Bachelor's Degree" },
-  earnings: { highest: { '1_yr': { overall_median_earnings: 70000 } } },
+  earnings: {
+    highest: { '1_yr': { overall_median_earnings: 70000 } },
+    '1_yr': { overall_median_earnings: 75000 },
+  },
 };
 
 /**
@@ -182,10 +190,19 @@ describe('getProgramsTool', () => {
 
   it('formats output with earnings, debt, and suppression note', () => {
     const output = {
+      ope6_id: null,
+      metric_scope: PROGRAM_METRIC_SCOPE,
+      provenance: PROGRAM_PROVENANCE,
+      shown: 2,
+      offset: 0,
+      limit: 20,
+      nextOffset: null,
+      truncated: false,
       school_id: SCHOOL_ID,
       school_name: SCHOOL_NAME,
       programs: [
         {
+          ...programOutcomes({}),
           code: '1107',
           title: 'Computer Science.',
           credential_level: "Bachelor's",
@@ -197,6 +214,7 @@ describe('getProgramsTool', () => {
           earnings_availability: 'available' as const,
         },
         {
+          ...programOutcomes({}),
           code: '5138',
           title:
             'Registered Nursing, Nursing Administration, Nursing Research and Clinical Nursing.',

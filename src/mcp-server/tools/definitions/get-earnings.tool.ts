@@ -6,11 +6,13 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
 import {
   EARNINGS_FIELDS,
   historicalEarningsContext,
   LATEST_EARNINGS_CONTEXT,
 } from '@/data/earnings-context.js';
+import { InstitutionContextSchema, institutionContext } from '@/mcp-server/institution-context.js';
 import { SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
 import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
@@ -68,6 +70,7 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
   }),
 
   output: z.object({
+    ...InstitutionContextSchema.shape,
     school_id: z.number().describe('School unit ID.'),
     school_name: z.string().describe('Institution name.'),
     current_availability: AvailabilityMapSchema.describe(
@@ -277,6 +280,7 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
         : undefined;
 
     return {
+      ...institutionContext(r),
       school_id: r.id ?? Number(input.id),
       school_name: r['school.name'] ?? 'Unknown',
       current,
@@ -290,7 +294,11 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
 
   format: (result) => {
     const fmt = (n: number | undefined) => (n != null ? `$${n.toLocaleString()}` : 'Not available');
-    const lines = [`## Earnings: ${result.school_name} (ID: ${result.school_id})`];
+    const lines = [
+      `## Earnings\n${escapeMarkdownInline(result.school_name)} (ID: ${result.school_id})`,
+    ];
+    if (result.ope6_id != null) lines.push(`OPEID6: ${escapeMarkdownInline(result.ope6_id)}`);
+    if (result.metric_scope) lines.push(`Metric scope: ${JSON.stringify(result.metric_scope)}`);
     lines.push('\n**Current Earnings Snapshot**');
     const c = result.current;
     if (result.suppressed) {

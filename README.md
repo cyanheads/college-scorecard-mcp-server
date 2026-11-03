@@ -1,13 +1,13 @@
 <div align="center">
   <h1>@cyanheads/college-scorecard-mcp-server</h1>
   <p><b>Search, compare, and analyze U.S. college data — costs, earnings, programs, and outcomes — via MCP. STDIO or Streamable HTTP.</b>
-  <div>9 Tools • 2 Resources • 1 Prompt</div>
+  <div>9 Tools • 3 Resources • 1 Prompt • 1 Skill</div>
   </p>
 </div>
 
 <div align="center">
 
-[![Version](https://img.shields.io/badge/Version-0.4.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/college-scorecard-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.3.1-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/college-scorecard-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/college-scorecard-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.3-blueviolet.svg?style=flat-square)](https://bun.sh/)
+[![Version](https://img.shields.io/badge/Version-0.4.0-blue.svg?style=flat-square)](./CHANGELOG.md) [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg?style=flat-square)](./LICENSE) [![Docker](https://img.shields.io/badge/Docker-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/users/cyanheads/packages/container/package/college-scorecard-mcp-server) [![MCP SDK](https://img.shields.io/badge/MCP%20SDK-^2.4.0-green.svg?style=flat-square)](https://modelcontextprotocol.io/) [![npm](https://img.shields.io/npm/v/@cyanheads/college-scorecard-mcp-server?style=flat-square&logo=npm&logoColor=white)](https://www.npmjs.com/package/@cyanheads/college-scorecard-mcp-server) [![TypeScript](https://img.shields.io/badge/TypeScript-^7.0.2-3178C6.svg?style=flat-square)](https://www.typescriptlang.org/) [![Bun](https://img.shields.io/badge/Bun-v1.4.4-blueviolet.svg?style=flat-square)](https://bun.sh/)
 
 </div>
 
@@ -38,11 +38,11 @@ US college data from the Department of Education College Scorecard: costs, earni
 | `scorecard_search_schools` | Search institutions by name, location, type, size, acceptance rate, and single-sex flags; sort by supported API fields. Returns core identity and cost metrics. |
 | `scorecard_get_school` | Full institutional profiles — costs, admissions, outcomes, aid, demographics, single-sex flags, and completion rates. |
 | `scorecard_compare_schools` | Normalized side-by-side comparison of 2–5 schools on a named topic. Returns metric values, ordinal ranks, and a comparison summary. |
-| `scorecard_get_programs` | Field-of-study programs at one school: median 1-year earnings, cumulative Stafford/Grad PLUS debt, and IPEDS awards in the two pooled debt-cohort years. |
+| `scorecard_get_programs` | Paged field-of-study outcomes: completion-based 1/4-year earnings, legacy highest-credential earnings, debt, and campus awards with separate provenance. |
 | `scorecard_search_programs` | Find programs by CIP and credential or keyword, retain degree identity, and rank earnings within each fetched school page. |
 | `scorecard_get_earnings` | Earnings of federally aided undergraduate entrants working and not enrolled, regardless of completion: 6/8/10-year medians, 6/10-year P25/P75, and non-male/male 6-year medians. |
 | `scorecard_value_analysis` | Workflow tool: parallel-fetches cost, debt, repayment, and earnings data, then computes ROI metrics — debt-to-earnings ratio and net price to earnings ratio. |
-| `scorecard_lookup_cip` | Search 186 curated NCES CIP 2020 four-digit groups by code, keyword, or related program name. Served offline. |
+| `scorecard_lookup_cip` | Search all 464 current NCES CIP 2020 four-digit groups by code, keyword, or related program name. Served offline. |
 | `scorecard_list_fields` | Search the Scorecard field catalog by keyword. Returns matching field paths, descriptions, data types, and sort support. Use before passing custom `fields` parameters. |
 
 ### Resources
@@ -50,9 +50,12 @@ US college data from the Department of Education College Scorecard: costs, earni
 | Resource | Description |
 |:---|:---|
 | `scorecard://school/{id}` | Institutional profile by unit ID — injectable context for school-specific conversations |
-| `scorecard://programs/{id}` | Program-level outcomes for a school |
+| `scorecard://programs/{id}` | First page of program-level outcomes for a school |
+| `scorecard://programs/{id}/page/{offset}/{limit}` | Continuation through a school's programs in provider order |
 
 All resource data is also reachable via tools. Use `scorecard_search_schools` or `scorecard_get_school` to discover school IDs before constructing resource URIs.
+
+The [college-scorecard-guide](./skills/college-scorecard-guide/SKILL.md) covers campus/CIP identity, paging, outcome populations, OPEID6 pooling, and price-basis gates. It ships with plugins, npm, Docker, and MCPB, and is served through the MCP Skills extension.
 
 ### Prompts
 
@@ -74,14 +77,15 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 
 - Accepts a school ID or an array of up to 1,000. The first 100 distinct IDs are fetched; `missing_ids` lists fetched IDs with no record and `unprocessed_ids` lists the excess.
 - Default profiles cover costs, admissions, outcomes, financial aid, demographics, and completion rates. Custom `fields` returns `selected_fields` with the requested values, and `absent_fields` lists requested paths missing from the response.
+- Projected program arrays use `program_limit` (default 20, capped at 100) and `program_offset`; follow each school's `program_pages` continuation. Raw values and provider positions stay aligned.
 - HBCU and single-sex flags are true/false when known and unknown when absent.
 
 ---
 
 ### `scorecard_compare_schools` <sub>tool</sub>
 
-- Accepts 2–5 school unit IDs and one topic: `costs`, `admissions`, `outcomes`, or `aid`.
-- Returns metric values and ranks from one API call: equal values share a rank (1, 1, 3) and unavailable values are unranked.
+- Accepts 2–1,000 raw unit IDs and compares the first five distinct normalized IDs on `costs`, `admissions`, `outcomes`, or `aid`. `missing_ids` were queried; `unprocessed_ids` were not.
+- Equal independent values share a rank (1, 1, 3). Missing values, pooled outcome rows containing shared OPEID6 groups, and mixed academic/program-year price rows are unranked.
 - Each cell's `availability` distinguishes available, unavailable, and privacy-suppressed values.
 
 ---
@@ -89,16 +93,18 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 ### `scorecard_get_programs` <sub>tool</sub>
 
 - Accepts one school ID, with optional CIP code (dotted or undotted), `credential_level`, and minimum earnings filters. A school with no matching programs returns an empty collection; a nonexistent school is a lookup error.
-- Returns median earnings and graduate counts 1 year after the highest credential. `earnings_availability` is `available`, `unavailable`, or `privacy_suppressed`, with `suppressed_count` and `unavailable_count`.
+- Completion-based 1/4-year medians and counts carry separate availability and provenance. Legacy `earnings_1yr_median`/`earnings_count` retain highest-credential semantics; their availability and suppression counts remain separate.
+- `min_earnings` and ordering use completion-based one-year earnings, with no legacy fallback. Page with `limit` (default 20, capped at 100) and `offset`; `total` counts matches before paging, and `nextOffset` is null at the end.
 - `median_debt` is completers' cumulative Stafford/Grad PLUS borrowing. `ipeds_awards_year1` and `ipeds_awards_year2` count awards in each year of the pooled debt cohort, not students.
 
 ---
 
 ### `scorecard_search_programs` <sub>tool</sub>
 
-- Search by CIP code or program name, with optional integer `credential_level` (1–8 and 99), state, ownership, net price, earnings, and debt filters. Zero-indexed `page` and `per_page` (up to 100) paginate schools, so returned program rows may exceed `per_page`.
+- Search by CIP code or program name, with optional integer `credential_level` (1–8 and 99), state, ownership, net price, earnings, and debt filters. `page`/`per_page` paginate schools; `offset`/`limit` page matching program rows within that school page.
 - Returns school IDs and names with program metrics, `credential_level`, and `credential_title`. Available earnings sort first; availability, debt, and award fields match `scorecard_get_programs`.
 - `min_earnings` filters locally, so totals and pagination are upstream school counts before filtering. Earnings and debt thresholds are inclusive and exclude unknown values.
+- Follow `next` until null: it drains program rows on the current school page before advancing. `shown` counts returned programs; `schools_shown` counts fetched schools. Rankings use current completion-based one-year earnings within the fetched page only.
 
 ---
 
@@ -115,19 +121,20 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 - Accepts one school ID; optional `family_income` selects the applicable net price bracket ($0–30k, $30k–48k, $48k–75k, $75k–110k, or $110k+).
 - Returns ratios alongside their source figures. `effective_net_price` is the price used, and `net_price_basis` is `income_bracket`, `overall`, or `unavailable`.
 - If the bracket is missing, the overall price is used and `data_notes` says so. Ratios require positive annual earnings.
+- Tuition and attendance independently prefer academic-year prices, otherwise reported program-year prices; each has its own basis. Program tuition never substitutes for net price. OPEID6-pooled outcomes are identified alongside campus prices.
 
 ---
 
 ### `scorecard_lookup_cip` <sub>tool</sub>
 
-- Search by nonblank keyword or partial name (default limit 20, capped at 50). Dotted `11.07` and undotted `1107` are equivalent.
-- Returns exact group titles and family identities from 186 current NCES CIP 2020 four-digit groups, a subset of the full taxonomy. Related six-digit program names also match and return their group; no matches return an empty collection with guidance.
+- Search by nonblank keyword or partial name (default limit 20, capped at 50). Dotted `11.07` and undotted `1107` are equivalent; continue with `offset` and returned `nextOffset` while more results remain.
+- Returns exact group titles and family identities from all 464 current NCES CIP 2020 four-digit groups. Verified six-digit program aliases return their group; no matches return an empty collection with guidance.
 
 ---
 
 ### `scorecard_list_fields` <sub>tool</sub>
 
-- Search 78 curated offline field entries by nonblank query (default limit 30, capped at 100). Use before passing custom `fields` to `scorecard_get_school`.
+- Search 84 curated offline field entries by nonblank query (default limit 30, capped at 100). Use before passing custom `fields` to `scorecard_get_school`.
 - Returns field paths, descriptions, data types, categories, and API sorting support; `tip` flags results containing unsortable fields.
 
 ---
@@ -142,9 +149,10 @@ All resource data is also reachable via tools. Use `scorecard_search_schools` or
 
 ### `scorecard://programs/{id}` <sub>resource</sub>
 
-- Program-level outcomes as `application/json` — CIP code, title, credential level, 1-year earnings, cumulative Stafford/Grad PLUS debt, and `ipeds_awards_year1` / `ipeds_awards_year2` with the same meanings as the program tools; missing metrics are null
+- First 20 program rows as `application/json`, in provider order, with current/legacy earnings populations, scope, provenance, debt, and campus awards. Legacy nullable metrics retain null; new metrics expose availability.
 - `id` is the school unit ID from `scorecard_search_schools`
 - `list` returns a handful of example school URIs; use `scorecard_search_schools` to discover others
+- Follow `nextUri` through `scorecard://programs/{id}/page/{offset}/{limit}` until null. Page limits above 100 normalize to 100, with a hard ceiling of 1,000; offsets are zero-based. Tool ordering differs, so do not reuse offsets between tools and resources.
 
 ---
 
@@ -160,9 +168,9 @@ Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core): s
 College Scorecard-specific:
 
 - Full College Scorecard API coverage: ~6,500 Title IV institutions, ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings
-- Program-level earnings: median earnings of graduates working and not enrolled 1 year after their highest credential, per school × CIP code × credential level
+- Program completion earnings at one and four years, alongside legacy highest-credential outcomes; each series carries its population and vintage
 - Field pre-selection per tool — curated field sets appropriate to each tool's purpose; optional `fields` override for custom queries
-- Embedded CIP taxonomy (186 groups) and field catalog (78 fields) served offline
+- Embedded CIP taxonomy (464 groups) and field catalog (84 fields) served offline
 - Geographic filtering via U.S. zip code + distance radius
 
 Agent-friendly output:
@@ -349,6 +357,7 @@ The Dockerfile defaults to HTTP transport, stateless session mode, and logs to `
 | `src/config` | Server-specific environment variable parsing and validation with Zod. |
 | `src/mcp-server/tools` | Tool definitions (`*.tool.ts`). Nine tools across search, profile, programs, earnings, and analysis. |
 | `src/mcp-server/resources` | Resource definitions. School profile and program outcomes resources. |
+| `skills/college-scorecard-guide` | Published usage gates for school/program comparisons and complete retrieval. |
 | `src/mcp-server/prompts` | Prompt definitions. Multi-school comparison prompt. |
 | `src/services` | `ScorecardService` — fetch wrapper with retry, field selection, and pagination against the College Scorecard API. |
 | `tests/` | Unit and integration tests mirroring `src/`. |
@@ -361,6 +370,7 @@ See [`CLAUDE.md`](./CLAUDE.md) for development guidelines and architectural rule
 - Use `ctx.log` for request-scoped logging, `ctx.state` for tenant-scoped storage
 - Register new tools, resources, and prompts in the `createApp()` arrays in `src/index.ts`
 - Wrap external API calls: validate raw → normalize to domain type → return output schema; never fabricate missing fields
+- During maintenance, run `bun run check:earnings-provenance` (Python 3 required) to compare embedded institution earnings metadata with the official dictionary. Pass a local XLSX path to reuse a download; requests never fetch the dictionary.
 
 ## Contributing
 

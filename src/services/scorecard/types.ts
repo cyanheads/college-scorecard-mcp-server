@@ -17,10 +17,18 @@ export interface RawProgram {
     };
   };
   earnings?: {
+    '1_yr'?: {
+      overall_median_earnings?: number | 'PS' | 'PrivacySuppressed' | null;
+      working_not_enrolled?: { overall_count?: number | 'PS' | 'PrivacySuppressed' | null };
+    };
+    '4_yr'?: {
+      overall_median_earnings?: number | 'PS' | 'PrivacySuppressed' | null;
+      working_not_enrolled?: { overall_count?: number | 'PS' | 'PrivacySuppressed' | null };
+    };
     highest?: {
       '1_yr'?: {
         overall_median_earnings?: number | 'PS' | 'PrivacySuppressed' | null;
-        working_not_enrolled?: { overall_count?: number | null };
+        working_not_enrolled?: { overall_count?: number | 'PS' | 'PrivacySuppressed' | null };
       };
     };
   };
@@ -46,6 +54,7 @@ export interface RawSchoolRecord {
   // Completion
   'latest.completion.rate_suppressed.overall'?: number | null;
   'latest.cost.attendance.academic_year'?: number | null;
+  'latest.cost.attendance.program_year'?: number | null;
   'latest.cost.avg_net_price.overall'?: number | null;
   // Net price by family-income bracket — keyed by ownership (public vs private);
   // the API returns null for the inapplicable ownership when both sets are requested.
@@ -62,6 +71,7 @@ export interface RawSchoolRecord {
   // Cost
   'latest.cost.tuition.in_state'?: number | null;
   'latest.cost.tuition.out_of_state'?: number | null;
+  'latest.cost.tuition.program_year'?: number | null;
   // Earnings
   'latest.earnings.6_yrs_after_entry.median'?: number | null;
   'latest.earnings.6_yrs_after_entry.median_earnings_male'?: number | null;
@@ -78,6 +88,7 @@ export interface RawSchoolRecord {
   // principal) 3 years after entering repayment — a 0–1 decimal, not a count.
   'latest.repayment.repayment_cohort.3_year_declining_balance'?: number | null;
   'latest.student.size'?: number | null;
+  ope6_id?: string | null;
   'school.carnegie_basic'?: number | null;
   'school.city'?: string;
   'school.degrees_awarded.predominant'?: number | null;

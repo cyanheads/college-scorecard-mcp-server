@@ -8,6 +8,7 @@ import { createApp } from '@cyanheads/mcp-ts-core';
 // Prompts
 import { comparePrompt } from './mcp-server/prompts/definitions/compare.prompt.js';
 import { programsResource } from './mcp-server/resources/definitions/programs.resource.js';
+import { programsPageResource } from './mcp-server/resources/definitions/programs-page.resource.js';
 // Resources
 import { schoolResource } from './mcp-server/resources/definitions/school.resource.js';
 import { compareSchoolsTool } from './mcp-server/tools/definitions/compare-schools.tool.js';
@@ -36,11 +37,12 @@ await createApp({
     compareSchoolsTool,
     valueAnalysisTool,
   ],
-  resources: [schoolResource, programsResource],
+  resources: [schoolResource, programsResource, programsPageResource],
   prompts: [comparePrompt],
   instructions:
-    'Find U.S. institutions with scorecard_search_schools, then pass the returned unit IDs to scorecard_get_school, scorecard_get_earnings, scorecard_get_programs, scorecard_compare_schools, or scorecard_value_analysis, which computes debt-to-earnings and ROI metrics in one call. To filter by field of study, resolve the program name to a CIP code with scorecard_lookup_cip first; program-level 1-year earnings come from scorecard_get_programs and scorecard_search_programs, institution-level 6/8/10-year earnings from scorecard_get_earnings. scorecard_lookup_cip and scorecard_list_fields read embedded data and make no API calls, so they are safe to use freely.',
+    'Resolve institution names to unit IDs with scorecard_search_schools and program names to CIP codes with scorecard_lookup_cip before retrieving or comparing outcomes. Program tools distinguish completion-based 1/4-year earnings from legacy highest-credential earnings; scorecard_get_earnings reports institution entrant outcomes at 6/8/10 years. Follow program-row and school-page continuations separately before drawing coverage or ranking conclusions. Check reported populations, dollar years, OPEID6 pooling, and price bases before comparing values. scorecard_lookup_cip and scorecard_list_fields use embedded reference data without API calls.',
   sessionMode: 'stateless',
+  skills: 'skills',
   setup(core) {
     initScorecardService(core.config, core.storage);
   },

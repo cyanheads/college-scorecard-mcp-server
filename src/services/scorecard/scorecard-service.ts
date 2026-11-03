@@ -29,6 +29,7 @@ const BASE_URL = 'https://api.data.gov/ed/collegescorecard/v1/schools';
 /** Default curated fields for school search results */
 const SEARCH_DEFAULT_FIELDS = [
   'id',
+  'ope6_id',
   'school.name',
   'school.city',
   'school.state',
@@ -38,6 +39,9 @@ const SEARCH_DEFAULT_FIELDS = [
   'latest.admissions.admission_rate.overall',
   'latest.cost.tuition.in_state',
   'latest.cost.tuition.out_of_state',
+  'latest.cost.tuition.program_year',
+  'latest.cost.attendance.academic_year',
+  'latest.cost.attendance.program_year',
   'latest.cost.avg_net_price.overall',
   'latest.aid.median_debt.completers.overall',
   'latest.earnings.6_yrs_after_entry.median',
@@ -46,6 +50,7 @@ const SEARCH_DEFAULT_FIELDS = [
 /** Default fields for full school profile */
 const PROFILE_DEFAULT_FIELDS = [
   'id',
+  'ope6_id',
   'school.name',
   'school.city',
   'school.state',
@@ -81,6 +86,8 @@ const PROFILE_DEFAULT_FIELDS = [
   'latest.cost.net_price.private.by_income_level.75001-110000',
   'latest.cost.net_price.private.by_income_level.110001-plus',
   'latest.cost.attendance.academic_year',
+  'latest.cost.attendance.program_year',
+  'latest.cost.tuition.program_year',
   'latest.aid.median_debt.completers.overall',
   'latest.aid.pell_grant_rate',
   'latest.aid.federal_loan_rate',
@@ -98,6 +105,7 @@ const PROFILE_DEFAULT_FIELDS = [
 /** Default fields for earnings time series */
 const EARNINGS_DEFAULT_FIELDS = [
   'id',
+  'ope6_id',
   'school.name',
   'latest.earnings.6_yrs_after_entry.median',
   'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
@@ -111,7 +119,12 @@ const EARNINGS_DEFAULT_FIELDS = [
 ].join(',');
 
 /** Fields for program-level data */
-const PROGRAMS_DEFAULT_FIELDS = ['id', 'school.name', 'latest.programs.cip_4_digit'].join(',');
+const PROGRAMS_DEFAULT_FIELDS = [
+  'id',
+  'ope6_id',
+  'school.name',
+  'latest.programs.cip_4_digit',
+].join(',');
 
 export class ScorecardService {
   private readonly apiKey: string;
@@ -315,7 +328,7 @@ export class ScorecardService {
     const params: Record<string, string | number | undefined> = {
       id: processed.join(','),
       fields: selected?.length
-        ? [...new Set(['id', 'school.name', ...selected])].join(',')
+        ? [...new Set(['id', 'school.name', 'ope6_id', ...selected])].join(',')
         : PROFILE_DEFAULT_FIELDS,
       per_page: processed.length,
     };
@@ -400,6 +413,7 @@ export class ScorecardService {
     const params: Record<string, string | number | undefined> = {
       fields: [
         'id',
+        'ope6_id',
         'school.name',
         'school.state',
         'school.ownership',
@@ -434,11 +448,15 @@ export class ScorecardService {
     id = normalizeSchoolId(id);
     const costFields = [
       'id',
+      'ope6_id',
       'school.name',
       'school.carnegie_basic',
       'school.ownership',
       'latest.cost.tuition.in_state',
       'latest.cost.tuition.out_of_state',
+      'latest.cost.tuition.program_year',
+      'latest.cost.attendance.academic_year',
+      'latest.cost.attendance.program_year',
       'latest.cost.avg_net_price.overall',
       'latest.cost.net_price.public.by_income_level.0-30000',
       'latest.cost.net_price.public.by_income_level.30001-48000',
@@ -457,6 +475,7 @@ export class ScorecardService {
 
     const earningsFields = [
       'id',
+      'ope6_id',
       'latest.earnings.6_yrs_after_entry.median',
       'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
       'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.75',
@@ -485,9 +504,13 @@ export class ScorecardService {
     const topicFields: Record<string, string> = {
       costs: [
         'id',
+        'ope6_id',
         'school.name',
         'latest.cost.tuition.in_state',
         'latest.cost.tuition.out_of_state',
+        'latest.cost.tuition.program_year',
+        'latest.cost.attendance.academic_year',
+        'latest.cost.attendance.program_year',
         'latest.cost.avg_net_price.overall',
         'latest.cost.net_price.public.by_income_level.0-30000',
         'latest.cost.net_price.public.by_income_level.30001-48000',
@@ -503,6 +526,7 @@ export class ScorecardService {
       ].join(','),
       admissions: [
         'id',
+        'ope6_id',
         'school.name',
         'latest.admissions.admission_rate.overall',
         'latest.admissions.sat_scores.average.overall',
@@ -514,6 +538,7 @@ export class ScorecardService {
       ].join(','),
       outcomes: [
         'id',
+        'ope6_id',
         'school.name',
         'latest.completion.rate_suppressed.overall',
         'latest.earnings.6_yrs_after_entry.median',
@@ -523,6 +548,7 @@ export class ScorecardService {
       ].join(','),
       aid: [
         'id',
+        'ope6_id',
         'school.name',
         'latest.aid.pell_grant_rate',
         'latest.aid.federal_loan_rate',

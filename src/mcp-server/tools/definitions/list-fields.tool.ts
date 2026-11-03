@@ -5,6 +5,7 @@
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
+import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
 import { searchFieldCatalog } from '@/data/field-catalog.js';
 
 export const listFieldsTool = tool('scorecard_list_fields', {
@@ -64,7 +65,11 @@ export const listFieldsTool = tool('scorecard_list_fields', {
     shown: z.number().describe('Number of fields returned.'),
     cap: z.number().describe('The limit that was applied.'),
   },
-  enrichmentTrailer: { queryContext: { render: (value) => JSON.stringify(value) } },
+  enrichmentTrailer: {
+    queryContext: {
+      render: (value) => markdown().codeBlock(JSON.stringify(value), 'json').build(),
+    },
+  },
 
   handler(input, ctx) {
     ctx.log.info('Searching field catalog', { query: input.query });
@@ -107,7 +112,7 @@ export const listFieldsTool = tool('scorecard_list_fields', {
 
   format: (result) => {
     const lines = [
-      `## Scorecard Field Catalog: "${result.query}"`,
+      `## Scorecard Field Catalog: "${escapeMarkdownInline(result.query)}"`,
       `**Matches:** ${result.totalMatches}`,
     ];
     if (result.tip) lines.push(`\n> **Tip:** ${result.tip}`);

@@ -13,6 +13,27 @@ import { ScorecardService } from '@/services/scorecard/scorecard-service.js';
 const apiErrorRecovery = getSchoolTool.errors?.find((e) => e.reason === 'api_error')?.recovery;
 
 describe('ScorecardService', () => {
+  it('selects pooling identity and both cost bases on institution requests', async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request) =>
+      Response.json({ metadata: { total: 0, page: 0, per_page: 1 }, results: [] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new ScorecardService({} as never, {} as never);
+    const ctx = createMockContext();
+    await service.searchSchools({}, ctx);
+    await service.getSchoolProfiles([235088], undefined, ctx);
+    await service.getComparisonData([235088], 'costs', ctx);
+    await service.getValueAnalysisData(235088, ctx);
+    for (const call of fetchMock.mock.calls) {
+      const fields = new URL(String(call[0])).searchParams.get('fields')!.split(',');
+      expect(fields).toContain('ope6_id');
+      if (fields.includes('latest.cost.tuition.in_state')) {
+        expect(fields).toContain('latest.cost.tuition.program_year');
+        expect(fields).toContain('latest.cost.attendance.academic_year');
+        expect(fields).toContain('latest.cost.attendance.program_year');
+      }
+    }
+  });
   it('sends CIP and credential filters before provider school pagination', async () => {
     const fetchMock = vi.fn(async (_url: string | URL | Request) =>
       Response.json({ metadata: { total: 0, page: 2, per_page: 5 }, results: [] }),
@@ -104,7 +125,7 @@ describe('ScorecardService', () => {
     it('requests one school by ID with the program fields', async () => {
       const params = await fetchPrograms(undefined);
       expect(params.get('id')).toBe('236948');
-      expect(params.get('fields')).toBe('id,school.name,latest.programs.cip_4_digit');
+      expect(params.get('fields')).toBe('id,ope6_id,school.name,latest.programs.cip_4_digit');
       expect(params.get('per_page')).toBe('1');
     });
 

@@ -1,17 +1,30 @@
 /**
- * @fileoverview Program outcomes tool. Returns all field-of-study programs at one school
+ * @fileoverview Program outcomes tool. Pages field-of-study programs at one school
  * with earnings, debt, and IPEDS award counts.
  * @module mcp-server/tools/definitions/get-programs.tool
  */
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, markdown, markdownLink } from '@cyanheads/mcp-ts-core/utils';
+import {
+  PROGRAM_METRIC_SCOPE,
+  PROGRAM_PROVENANCE,
+  ProgramMetricScopeSchema,
+  ProgramProvenanceSchema,
+} from '@/data/program-provenance.js';
 import {
   normalizeCip,
   normalizeSchoolId,
   SchoolIdSchema,
 } from '@/services/scorecard/input-normalization.js';
-import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
+import { MetricAvailabilitySchema } from '@/services/scorecard/metric-availability.js';
+import {
+  CompletionMetricsSchema,
+  compareProgramEarnings,
+  programOutcomes,
+  programPage,
+} from '@/services/scorecard/program-outcomes.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 import type { RawProgram } from '@/services/scorecard/types.js';
 
@@ -36,9 +49,21 @@ const credentialLabel = (credential: RawProgram['credential']): string => {
 };
 
 const ProgramSchema = z.object({
+  ...CompletionMetricsSchema.shape,
+  earnings_count_availability: MetricAvailabilitySchema.describe(
+    'Availability of the legacy highest-credential population count.',
+  ),
   code: z.string().describe('4-digit CIP program code.'),
   title: z.string().optional().describe('Program title.'),
   credential_level: z.string().describe('Degree/credential level.'),
+  credential_level_code: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      'Provider numeric credential identity; the legacy credential_level field remains a display label.',
+    ),
+  credential_title: z.string().optional().describe('Provider credential title when reported.'),
   earnings_1yr_median: z
     .number()
     .optional()
@@ -84,10 +109,23 @@ const ProgramSchema = z.object({
 export const getProgramsTool = tool('scorecard_get_programs', {
   title: 'Get School Programs',
   description:
-    'All field-of-study programs at one school with median earnings 1 year after the highest credential, cumulative Stafford/Grad PLUS debt, and IPEDS awards for each year of the pooled debt cohort. Institution-level 6/8/10-year earnings are available via scorecard_get_earnings. Null or absent earnings have unknown cause; suppressed=true requires an explicit provider privacy marker. Use scorecard_lookup_cip to find CIP codes by name.',
+    'Page through field-of-study programs at one school, ranked and filtered by completion-based one-year earnings. Legacy highest-credential earnings remain separate from current one- and four-year completion series, with dictionary provenance. Earnings and debt pool across campuses sharing OPEID6 within CIP/credential; awards are campus-specific. Use scorecard_lookup_cip to find CIP codes by name.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   input: z.object({
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .default(20)
+      .describe('Program rows per response; values above 100 normalize to 100.'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe('Zero-based program row offset after filtering and stable earnings ordering.'),
     id: SchoolIdSchema,
     cip_code: z
       .string()
@@ -98,7 +136,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     min_earnings: z
       .number()
       .optional()
-      .describe('Minimum 1-year post-graduation median earnings filter.'),
+      .describe('Minimum completion-based one-year median earnings; no legacy fallback.'),
     credential_level: z
       .number()
       .int()
@@ -109,18 +147,39 @@ export const getProgramsTool = tool('scorecard_get_programs', {
   }),
 
   output: z.object({
+    ope6_id: z
+      .string()
+      .nullable()
+      .describe('Provider OPEID6 group identifier, preserving leading zeros; null when absent.'),
+    metric_scope: ProgramMetricScopeSchema.describe(
+      'Metric aggregation scope within CIP and credential.',
+    ),
+    provenance: ProgramProvenanceSchema.describe(
+      'Dictionary cohort, measurement, and dollar provenance for each population.',
+    ),
+    shown: z.number().describe('Program rows returned on this page.'),
+    offset: z.number().describe('Effective zero-based program offset.'),
+    limit: z.number().describe('Effective program row limit, at most 100.'),
+    nextOffset: z.number().nullable().describe('Next program row offset, or null when exhausted.'),
+    truncated: z.boolean().describe('More matching program rows remain.'),
     school_id: z.number().describe('School unit ID.'),
     school_name: z.string().describe('Institution name.'),
     programs: z
       .array(ProgramSchema.describe('Program outcome record.'))
       .describe(
-        'All programs matching the filters, sorted by earnings descending with unavailable or privacy-suppressed earnings last.',
+        'One page of matching programs, stably sorted by completion-based one-year earnings descending, with unavailable current earnings last.',
       ),
-    total: z.number().describe('Total programs returned after filtering.'),
+    total: z.number().describe('Total matching programs before row pagination.'),
     suppressed_count: z
       .number()
-      .describe('Number of programs with confirmed privacy-suppressed earnings.'),
-    unavailable_count: z.number().describe('Programs with unavailable earnings of unknown cause.'),
+      .describe(
+        'Matching programs with confirmed privacy-suppressed legacy highest-credential earnings, before row paging.',
+      ),
+    unavailable_count: z
+      .number()
+      .describe(
+        'Matching programs with unavailable legacy highest-credential earnings of unknown cause, before row paging.',
+      ),
   }),
 
   enrichment: {
@@ -134,7 +193,9 @@ export const getProgramsTool = tool('scorecard_get_programs', {
         'Guidance when no programs match or some earnings are unavailable or privacy-suppressed.',
       ),
   },
-  enrichmentTrailer: { query: { render: (value) => JSON.stringify(value) } },
+  enrichmentTrailer: {
+    query: { render: (value) => markdown().inlineCode(JSON.stringify(value)).build() },
+  },
 
   errors: [
     {
@@ -224,7 +285,15 @@ export const getProgramsTool = tool('scorecard_get_programs', {
   ],
 
   async handler(input, ctx) {
-    input = { ...input, id: normalizeSchoolId(input.id), cip_code: normalizeCip(input.cip_code) };
+    const notices: string[] = [];
+    const requestedLimit = input.limit;
+    input = {
+      ...input,
+      limit: Math.min(input.limit, 100),
+      id: normalizeSchoolId(input.id),
+      cip_code: normalizeCip(input.cip_code),
+    };
+    if (requestedLimit > 100) notices.push('Program limit normalized to 100 rows.');
     ctx.enrich({
       query: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
     });
@@ -234,7 +303,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     const response = await service.getSchoolPrograms(
       input.id,
       input.cip_code,
-      input.min_earnings,
+      undefined,
       input.credential_level,
       ctx,
     );
@@ -261,22 +330,19 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     }
 
     const programs = filtered.map((p): z.infer<typeof ProgramSchema> => {
-      const earnings = readMetric(p.earnings?.highest?.['1_yr']?.overall_median_earnings);
-      const rawEarnings = earnings.value;
-      const earningsCount = p.earnings?.highest?.['1_yr']?.working_not_enrolled?.overall_count;
+      const outcomes = programOutcomes(p);
       const medianDebt = p.debt?.staff_grad_plus?.all?.all_inst?.median;
-      const suppressed = earnings.availability === 'privacy_suppressed';
+      const suppressed = outcomes.suppressed;
       return {
         code: p.code ?? 'Unknown',
         ...(p.title && { title: p.title }),
         credential_level: credentialLabel(p.credential),
-        ...(rawEarnings != null && { earnings_1yr_median: rawEarnings }),
-        ...(earningsCount != null && { earnings_count: earningsCount }),
+        ...(p.credential?.level != null && { credential_level_code: p.credential.level }),
+        ...(p.credential?.title != null && { credential_title: p.credential.title }),
+        ...outcomes,
         ...(medianDebt != null && { median_debt: medianDebt }),
         ...(p.counts?.ipeds_awards1 != null && { ipeds_awards_year1: p.counts.ipeds_awards1 }),
         ...(p.counts?.ipeds_awards2 != null && { ipeds_awards_year2: p.counts.ipeds_awards2 }),
-        suppressed,
-        earnings_availability: earnings.availability,
         ...(suppressed && {
           suppression_note:
             'The provider explicitly marks earnings as privacy-suppressed; the particular cause is not supplied.',
@@ -289,7 +355,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     const earningsFiltered =
       minEarnings != null
         ? programs.filter(
-            (p) => p.earnings_1yr_median != null && p.earnings_1yr_median >= minEarnings,
+            (p) => p.completion_1yr_median != null && p.completion_1yr_median >= minEarnings,
           )
         : programs;
 
@@ -298,7 +364,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
         filtered.length > 0
           ? 'Lower the min_earnings threshold or remove it to see all programs.'
           : 'Remove the cip_code or credential_level filter to see all available programs.';
-      ctx.enrich.notice(
+      notices.push(
         rawPrograms.length
           ? `No programs matched at this existing school. ${hint}`
           : 'This institution has no reported programs; try another school ID from scorecard_search_schools.',
@@ -306,27 +372,33 @@ export const getProgramsTool = tool('scorecard_get_programs', {
     }
 
     // Sort: programs with earnings first, descending by earnings
-    const sorted = earningsFiltered.sort((a, b) => {
-      if (a.earnings_1yr_median == null && b.earnings_1yr_median != null) return 1;
-      if (a.earnings_1yr_median != null && b.earnings_1yr_median == null) return -1;
-      return (b.earnings_1yr_median ?? 0) - (a.earnings_1yr_median ?? 0);
-    });
+    const sorted = earningsFiltered.sort(compareProgramEarnings);
+    const page = programPage(sorted, input.offset, input.limit);
+    if (page.truncated)
+      notices.push(
+        `More program rows remain. Request offset ${page.nextOffset} with the same selectors.`,
+      );
+    else if (input.offset > 0 && page.shown === 0)
+      notices.push('This program offset is exhausted; use offset 0 to restart.');
 
     const suppressed_count = sorted.filter((p) => p.suppressed).length;
     const unavailable_count = sorted.filter(
       (p) => p.earnings_availability === 'unavailable',
     ).length;
     if (suppressed_count > 0 || unavailable_count > 0) {
-      ctx.enrich.notice(
-        `${suppressed_count} programs have confirmed privacy-suppressed earnings; ${unavailable_count} have unavailable earnings of unknown cause. Programs without earnings are listed last.`,
+      notices.push(
+        `${suppressed_count} programs have confirmed privacy-suppressed earnings; ${unavailable_count} have unavailable earnings of unknown cause in the legacy highest-credential series. Ordering uses current completion-based one-year earnings.`,
       );
     }
+    if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
 
     return {
+      ...page,
+      ope6_id: record.ope6_id ?? null,
+      metric_scope: PROGRAM_METRIC_SCOPE,
+      provenance: PROGRAM_PROVENANCE,
       school_id: record.id ?? Number(input.id),
       school_name: record['school.name'] ?? 'Unknown',
-      programs: sorted,
-      total: sorted.length,
       suppressed_count,
       unavailable_count,
     };
@@ -334,13 +406,15 @@ export const getProgramsTool = tool('scorecard_get_programs', {
 
   format: (result) => {
     const lines = [
-      `## Programs at ${result.school_name} (ID: ${result.school_id})`,
+      `## Programs at ${escapeMarkdownInline(result.school_name)} (ID: ${result.school_id})`,
       `**Total:** ${result.total} | **Suppressed:** ${result.suppressed_count} | **Unavailable:** ${result.unavailable_count}`,
     ];
     for (const p of result.programs) {
-      lines.push(`\n**${p.code}** — ${p.title ?? 'Unknown title'} (${p.credential_level})`);
       lines.push(
-        `1-Year Earnings (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : 'Not available'} | Availability: ${p.earnings_availability} | Suppressed: ${p.suppressed}`,
+        `\n**${escapeMarkdownInline(p.code)}** — ${escapeMarkdownInline(p.title ?? 'Unknown title')} (${escapeMarkdownInline(p.credential_level)})`,
+      );
+      lines.push(
+        `Legacy 1-Year Earnings after Highest Credential (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : 'Not available'} | Availability: ${p.earnings_availability} | Suppressed: ${p.suppressed}`,
       );
       if (p.suppression_note != null) lines.push(`Suppression note: ${p.suppression_note}`);
       if (p.median_debt != null)
@@ -356,6 +430,13 @@ export const getProgramsTool = tool('scorecard_get_programs', {
           `Earnings Cohort (working, not enrolled; 1 year after highest credential): ${p.earnings_count} graduates`,
         );
     }
+    lines.push(
+      `Program rows: ${result.shown} | Offset: ${result.offset} | Limit: ${result.limit} | Next offset: ${result.nextOffset} | Truncated: ${result.truncated}`,
+    );
+    lines.push(
+      `Earnings order and min_earnings use completion_1yr_median; no legacy fallback. Provenance: ${markdownLink('College Scorecard data dictionary', result.provenance.source)}`,
+    );
+    lines.push(markdown().codeBlock(JSON.stringify(result), 'json').build());
     return [{ type: 'text', text: lines.join('\n') }];
   },
 });

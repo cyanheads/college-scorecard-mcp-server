@@ -60,7 +60,10 @@ const program = (earnings: number | null = 70000) => ({
   code: '1107',
   title: 'Computer Science',
   credential: { level: 3, title: "Bachelor's Degree" },
-  earnings: { highest: { '1_yr': { overall_median_earnings: earnings } } },
+  earnings: {
+    highest: { '1_yr': { overall_median_earnings: earnings } },
+    '1_yr': { overall_median_earnings: earnings },
+  },
 });
 
 describe('Scorecard caller contracts', () => {
@@ -230,12 +233,12 @@ describe('Scorecard caller contracts', () => {
         },
         current_context: {
           earnings_6yr_median: {
-            data_file_year: 2020,
-            entry_cohorts: ['2013-14', '2014-15'],
-            dollar_year: 2022,
+            data_file_year: 2022,
+            entry_cohorts: ['2015-16', '2016-17'],
+            dollar_year: 2024,
           },
-          earnings_8yr_median: { entry_cohorts: ['2011-12', '2012-13'] },
-          earnings_10yr_median: { entry_cohorts: ['2009-10', '2010-11'] },
+          earnings_8yr_median: { entry_cohorts: ['2013-14', '2014-15'] },
+          earnings_10yr_median: { entry_cohorts: ['2011-12', '2012-13'] },
         },
         trend: [
           {
@@ -875,10 +878,10 @@ describe('Scorecard caller contracts', () => {
         ],
       });
       expect(requests[0]!.searchParams.get('fields')).toContain('id,school.name');
-      expect(textOf(result)).toContain('**custom.null:** null');
-      expect(textOf(result)).toContain('**custom.zero:** 0');
-      expect(textOf(result)).toContain('**custom.false:** false');
-      expect(textOf(result)).toContain('**custom.empty:** ""');
+      expect(textOf(result)).toContain('**custom.null:** `null`');
+      expect(textOf(result)).toContain('**custom.zero:** `0`');
+      expect(textOf(result)).toContain('**custom.false:** `false`');
+      expect(textOf(result)).toContain('**custom.empty:** `""`');
       expect(textOf(result)).toContain('[null,0,false,""]');
       expect(textOf(result)).not.toContain('Not available');
     });
@@ -924,7 +927,7 @@ describe('Scorecard caller contracts', () => {
         result.structuredContent as { schools: { selected_fields: Record<string, unknown> }[] }
       ).schools[0]!.selected_fields;
       expect(textOf(result)).toContain(
-        `**latest.programs.cip_4_digit:** ${JSON.stringify(selected['latest.programs.cip_4_digit'])}`,
+        `**latest.programs.cip_4_digit:** \`${JSON.stringify(selected['latest.programs.cip_4_digit'])}\``,
       );
       expect(Object.keys(selected)).toEqual(['latest.programs.cip_4_digit']);
     });
@@ -1161,10 +1164,13 @@ describe('Scorecard caller contracts', () => {
           page: 1,
           per_page: 2,
           totalCount: 8,
-          shown: 1,
-          cap: 2,
+          shown: tool === searchProgramsTool ? 2 : 1,
+          cap: tool === searchProgramsTool ? 20 : 2,
+          ...(tool === searchProgramsTool && { schools_shown: 1 }),
         });
-        expect(textOf(result)).toContain('**shown:** 1');
+        expect(textOf(result)).toContain(
+          tool === searchProgramsTool ? '"shown":2' : '**shown:** 1',
+        );
         expect(textOf(result)).toContain('**8 total**');
       },
     );
@@ -1230,7 +1236,7 @@ describe('Scorecard caller contracts', () => {
           createMockContext({ errors: programsResource.errors }),
         );
         expect(resource).toMatchObject({ programs: [metrics] });
-        expect(JSON.stringify(resource)).not.toContain('enrollment');
+        expect(JSON.stringify(resource)).not.toContain('"enrollment":');
       },
     );
 
@@ -1319,7 +1325,10 @@ describe('Scorecard caller contracts', () => {
                 ...(earnings === undefined
                   ? { earnings: {} }
                   : {
-                      earnings: { highest: { '1_yr': { overall_median_earnings: earnings } } },
+                      earnings: {
+                        highest: { '1_yr': { overall_median_earnings: earnings } },
+                        '1_yr': { overall_median_earnings: earnings },
+                      },
                     }),
                 ...(debt === undefined
                   ? {}
@@ -1344,8 +1353,9 @@ describe('Scorecard caller contracts', () => {
         expect(result.structuredContent).toMatchObject({
           total: 4,
           totalCount: 4,
-          shown: 1,
-          cap: 1,
+          schools_shown: 1,
+          shown: expected.length,
+          cap: 20,
           truncated: true,
         });
         const params = requests[0]!.searchParams;
@@ -1408,14 +1418,17 @@ describe('Scorecard caller contracts', () => {
           page,
           per_page,
           totalCount: total,
-          shown: count,
-          cap: per_page,
+          shown: tool === searchProgramsTool ? count * 3 : count,
+          cap: tool === searchProgramsTool ? 20 : per_page,
+          ...(tool === searchProgramsTool && { schools_shown: count }),
           truncated: more,
         });
         const text = textOf(result);
         expect(text).toContain(`**truncated:** ${more}`);
-        expect(text).toContain(`**shown:** ${count}`);
-        expect(text).toContain(`**cap:** ${per_page}`);
+        expect(text).toContain(
+          tool === searchProgramsTool ? `"shown":${count * 3}` : `**shown:** ${count}`,
+        );
+        expect(text).toContain(`**cap:** ${tool === searchProgramsTool ? 20 : per_page}`);
         if (more) {
           expect(text).toContain(`Request page ${page + 1}`);
           expect(text.match(/Request page/g)).toHaveLength(1);
@@ -1452,8 +1465,9 @@ describe('Scorecard caller contracts', () => {
           expect(text.split(hint)).toHaveLength(2);
           expect(result.structuredContent).toMatchObject({
             truncated: page === 0,
-            shown: 1,
-            cap: 1,
+            shown: mode === 'empty' ? 0 : 1,
+            schools_shown: 1,
+            cap: 20,
             totalCount: 2,
           });
           if (page === 0) {

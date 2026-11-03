@@ -13,11 +13,11 @@ export function ownershipLabel(v: number | null | undefined): string {
 export function degreeLevelLabel(v: number | null | undefined): string {
   if (v == null) return 'Unknown';
   const map: Record<number, string> = {
-    0: 'Non-degree',
+    0: 'Not classified',
     1: 'Certificate',
     2: "Associate's",
     3: "Bachelor's",
-    4: 'Graduate',
+    4: 'Entirely graduate-degree granting',
   };
   return map[v] ?? String(v);
 }

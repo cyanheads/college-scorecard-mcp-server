@@ -6,6 +6,7 @@
 
 import { resource, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { institutionContext, institutionCosts } from '@/mcp-server/institution-context.js';
 import { EXAMPLE_SCHOOLS } from '@/mcp-server/resources/definitions/example-schools.js';
 import { SchoolIdStringSchema } from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
@@ -118,6 +119,8 @@ export const schoolResource = resource('scorecard://school/{id}', {
     }
 
     return {
+      ...institutionContext(record),
+      ...institutionCosts(record),
       id: record.id,
       name: record['school.name'],
       city: record['school.city'],

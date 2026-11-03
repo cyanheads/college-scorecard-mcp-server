@@ -6,16 +6,41 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, markdown, markdownLink } from '@cyanheads/mcp-ts-core/utils';
+import {
+  PROGRAM_METRIC_SCOPE,
+  PROGRAM_PROVENANCE,
+  ProgramMetricScopeSchema,
+  ProgramProvenanceSchema,
+} from '@/data/program-provenance.js';
 import { ownershipLabel } from '@/mcp-server/format-helpers.js';
 import {
   meaningfulText,
   normalizeCip,
   normalizeState,
 } from '@/services/scorecard/input-normalization.js';
-import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
+import { MetricAvailabilitySchema } from '@/services/scorecard/metric-availability.js';
+import {
+  CompletionMetricsSchema,
+  compareProgramEarnings,
+  programOutcomes,
+  programPage,
+} from '@/services/scorecard/program-outcomes.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 const ProgramResultSchema = z.object({
+  ...CompletionMetricsSchema.shape,
+  ope6_id: z
+    .string()
+    .nullable()
+    .describe('Provider OPEID6 group identifier, preserving leading zeros; null when absent.'),
+  earnings_count: z
+    .number()
+    .optional()
+    .describe('Legacy highest-credential working/not-enrolled population count.'),
+  earnings_count_availability: MetricAvailabilitySchema.describe(
+    'Availability of the legacy highest-credential count.',
+  ),
   school_id: z.number().describe('School unit ID — use for follow-up calls.'),
   school_name: z.string().describe('Institution name.'),
   school_state: z.string().optional().describe('State code.'),
@@ -62,10 +87,23 @@ const ProgramResultSchema = z.object({
 export const searchProgramsTool = tool('scorecard_search_programs', {
   title: 'Search Programs',
   description:
-    'Find programs by CIP code across institutions, ranked by median earnings within the fetched school page. Accepts school-side filters (state, ownership, max cost). Minimum earnings is applied locally; totals and pagination count schools before local program filtering. Use scorecard_lookup_cip to convert program names to CIP codes. Returns school names and IDs alongside program earnings, cumulative Stafford/Grad PLUS debt, and IPEDS awards for follow-up calls to scorecard_get_school or scorecard_get_programs.',
+    'Find programs across institutions, ranked and filtered by completion-based one-year median earnings within the fetched school page. Legacy highest-credential values remain separate with their own provenance. Earnings and debt pool across campuses sharing OPEID6 within CIP/credential; awards are campus-specific. School page/per_page/total count schools; limit/offset page the matching program rows. Follow next to drain this school page before advancing to the next school page. Use scorecard_lookup_cip to find CIP codes.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .default(20)
+      .describe('Program rows per response; values above 100 normalize to 100.'),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe('Zero-based row offset within the filtered and sorted school page.'),
     credential_level: z
       .number()
       .int()
@@ -103,7 +141,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       .number()
       .optional()
       .describe(
-        'Minimum 1-year median earnings, inclusive. Filters this school page locally and excludes unavailable earnings; school totals are unchanged.',
+        'Minimum completion-based one-year median earnings, inclusive, without legacy fallback; filters this school page locally while school totals remain unchanged.',
       ),
     max_debt: z
       .number()
@@ -122,6 +160,26 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
   }),
 
   output: z.object({
+    metric_scope: ProgramMetricScopeSchema.describe(
+      'Aggregation scope within CIP and credential identity.',
+    ),
+    provenance: ProgramProvenanceSchema.describe(
+      'Dictionary provenance for each distinct program population.',
+    ),
+    shown: z.number().describe('Program rows returned in this response.'),
+    offset: z.number().describe('Effective zero-based row offset within this school page.'),
+    limit: z.number().describe('Effective program row limit, at most 100.'),
+    nextOffset: z
+      .number()
+      .nullable()
+      .describe('Next row offset on this school page, or null when drained.'),
+    next: z
+      .object({
+        page: z.number().describe('School page to request.'),
+        offset: z.number().describe('Row offset to request on that school page.'),
+      })
+      .nullable()
+      .describe('Continuation using the same selectors and limits; null when exhausted.'),
     total: z
       .number()
       .describe(
@@ -132,11 +190,21 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
     programs: z
       .array(ProgramResultSchema.describe('Program result with school context.'))
       .describe(
-        'Program rows retain separate credential identities, sorted by earnings descending with unavailable or privacy-suppressed earnings last.',
+        'One page of program rows retaining credential identities, stably sorted by completion-based one-year earnings descending, with unavailable current earnings last.',
       ),
-    total_programs: z.number().describe('Total programs returned across all result schools.'),
-    suppressed_count: z.number().describe('Programs with suppressed earnings.'),
-    unavailable_count: z.number().describe('Programs with unavailable earnings of unknown cause.'),
+    total_programs: z
+      .number()
+      .describe('Matching program rows on the fetched school page before row pagination.'),
+    suppressed_count: z
+      .number()
+      .describe(
+        'Matching programs with confirmed privacy-suppressed legacy highest-credential earnings, before row paging.',
+      ),
+    unavailable_count: z
+      .number()
+      .describe(
+        'Matching programs with unavailable legacy highest-credential earnings of unknown cause, before row paging.',
+      ),
   }),
 
   enrichment: {
@@ -148,17 +216,17 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       .describe(
         'Total schools matching upstream filters, before pagination and local program filtering.',
       ),
-    truncated: z
-      .boolean()
-      .describe('True when school pagination metadata indicates a later page exists.'),
-    shown: z.number().describe('Schools returned on this page.'),
-    cap: z.number().describe('The per_page limit that was applied.'),
+    truncated: z.boolean().describe('True when more program rows or a later school page remain.'),
+    schools_shown: z.number().describe('Schools returned on this school page.'),
+    cap: z.number().describe('The effective program row limit that was applied.'),
     notice: z
       .string()
       .optional()
       .describe('Recovery hint when no programs match or earnings data is unavailable.'),
   },
-  enrichmentTrailer: { query: { render: (value) => JSON.stringify(value) } },
+  enrichmentTrailer: {
+    query: { render: (value) => markdown().inlineCode(JSON.stringify(value)).build() },
+  },
 
   errors: [
     {
@@ -242,12 +310,16 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
   ],
 
   async handler(input, ctx) {
+    const notices: string[] = [];
+    const requestedLimit = input.limit;
     input = {
       ...input,
+      limit: Math.min(input.limit, 100),
       cip_code: normalizeCip(input.cip_code),
       state: normalizeState(input.state),
       program_name: meaningfulText(input.program_name),
     };
+    if (requestedLimit > 100) notices.push('Program limit normalized to 100 rows.');
     ctx.enrich({
       query: Object.fromEntries(
         Object.entries({
@@ -294,10 +366,9 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
           if (!nameMatch) continue;
         }
 
-        const earnings = readMetric(p.earnings?.highest?.['1_yr']?.overall_median_earnings);
-        const rawEarnings = earnings.value;
+        const outcomes = programOutcomes(p);
+        const rawEarnings = outcomes.completion_1yr_median;
         const medianDebt = p.debt?.staff_grad_plus?.all?.all_inst?.median;
-        const suppressed = earnings.availability === 'privacy_suppressed';
 
         // Post-fetch earnings filter
         if (input.min_earnings != null && (rawEarnings == null || rawEarnings < input.min_earnings))
@@ -306,6 +377,8 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
         if (input.max_debt != null && (medianDebt == null || medianDebt > input.max_debt)) continue;
 
         allPrograms.push({
+          ...outcomes,
+          ope6_id: record.ope6_id ?? null,
           school_id: record.id ?? 0,
           school_name: record['school.name'] ?? 'Unknown',
           ...(record['school.state'] && { school_state: record['school.state'] }),
@@ -317,22 +390,16 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
           ...(p.title && { program_title: p.title }),
           ...(p.credential?.level != null && { credential_level: p.credential.level }),
           ...(p.credential?.title != null && { credential_title: p.credential.title }),
-          ...(rawEarnings != null && { earnings_1yr_median: rawEarnings }),
           ...(medianDebt != null && { median_debt: medianDebt }),
           ...(p.counts?.ipeds_awards1 != null && { ipeds_awards_year1: p.counts.ipeds_awards1 }),
           ...(p.counts?.ipeds_awards2 != null && { ipeds_awards_year2: p.counts.ipeds_awards2 }),
-          suppressed,
-          earnings_availability: earnings.availability,
         });
       }
     }
 
     // Available numbers sort ahead of missing or privacy-suppressed earnings.
-    allPrograms.sort((a, b) => {
-      if (a.earnings_1yr_median == null && b.earnings_1yr_median != null) return 1;
-      if (a.earnings_1yr_median != null && b.earnings_1yr_median == null) return -1;
-      return (b.earnings_1yr_median ?? 0) - (a.earnings_1yr_median ?? 0);
-    });
+    allPrograms.sort(compareProgramEarnings);
+    const rows = programPage(allPrograms, input.offset, input.limit);
 
     const suppressed_count = allPrograms.filter((p) => p.suppressed).length;
     const unavailable_count = allPrograms.filter(
@@ -340,10 +407,16 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
     ).length;
 
     const { total, page, per_page } = response.metadata;
-    const truncated = (page + 1) * per_page < total;
+    const moreSchools = (page + 1) * per_page < total;
+    const next =
+      rows.nextOffset != null
+        ? { page, offset: rows.nextOffset }
+        : moreSchools
+          ? { page: page + 1, offset: 0 }
+          : null;
+    const truncated = next != null;
     ctx.enrich.total(total);
-    ctx.enrich({ truncated, shown: response.results.length, cap: per_page });
-    const notices: string[] = [];
+    ctx.enrich({ truncated, schools_shown: response.results.length, cap: rows.limit });
     if (allPrograms.length === 0) {
       notices.push(
         response.results.length === 0
@@ -354,21 +427,30 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       );
     } else if (suppressed_count + unavailable_count === allPrograms.length) {
       notices.push(
-        `All ${allPrograms.length} programs lack available earnings: ${suppressed_count} confirmed privacy-suppressed, ${unavailable_count} unavailable with unknown cause. Try a broader CIP code or different state.`,
+        `All ${allPrograms.length} programs lack available legacy highest-credential earnings: ${suppressed_count} confirmed privacy-suppressed, ${unavailable_count} unavailable with unknown cause. Current completion-based earnings are reported separately.`,
       );
     }
-    if (truncated) {
+    if (next) {
       notices.push(
-        `More schools match the upstream filters. Request page ${page + 1} or raise per_page (max 100) for more.`,
+        `More programs or schools remain. Request page ${next.page} with offset ${next.offset} and the same selectors and limits.`,
       );
     }
+    if (input.offset > 0 && rows.shown === 0)
+      notices.push('This program offset is exhausted on this school page.');
     if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
 
     return {
+      metric_scope: PROGRAM_METRIC_SCOPE,
+      provenance: PROGRAM_PROVENANCE,
+      shown: rows.shown,
+      offset: rows.offset,
+      limit: rows.limit,
+      nextOffset: rows.nextOffset,
+      next,
       total: response.metadata.total,
       page: response.metadata.page,
       per_page: response.metadata.per_page,
-      programs: allPrograms,
+      programs: rows.programs,
       total_programs: allPrograms.length,
       suppressed_count,
       unavailable_count,
@@ -382,18 +464,20 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       `**Page:** ${result.page} | **Per Page:** ${result.per_page}`,
     ];
     for (const p of result.programs) {
-      lines.push(`\n**${p.program_code}** — ${p.program_title ?? 'Unknown'}`);
+      lines.push(
+        `\n**${escapeMarkdownInline(p.program_code)}** — ${escapeMarkdownInline(p.program_title ?? 'Unknown')}`,
+      );
       if (p.credential_level != null || p.credential_title != null)
         lines.push(
-          `Credential: ${p.credential_title ?? 'Title not reported'}${p.credential_level != null ? ` (level ${p.credential_level})` : ''}`,
+          `Credential: ${escapeMarkdownInline(p.credential_title ?? 'Title not reported')}${p.credential_level != null ? ` (level ${p.credential_level})` : ''}`,
         );
       lines.push(
-        `School: ${p.school_name} (ID: ${p.school_id}) | ${p.school_ownership}${p.school_state ? ` | ${p.school_state}` : ''}`,
+        `School: ${escapeMarkdownInline(p.school_name)} (ID: ${p.school_id}) | ${escapeMarkdownInline(p.school_ownership)}${p.school_state ? ` | ${escapeMarkdownInline(p.school_state)}` : ''}`,
       );
       if (p.net_price_overall != null)
         lines.push(`Net Price: $${p.net_price_overall.toLocaleString()}`);
       lines.push(
-        `1-Year Earnings (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : 'Not available'} | Availability: ${p.earnings_availability} | Suppressed: ${p.suppressed}`,
+        `Legacy 1-Year Earnings after Highest Credential (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : 'Not available'} | Availability: ${p.earnings_availability} | Suppressed: ${p.suppressed}`,
       );
       if (p.median_debt != null)
         lines.push(
@@ -404,6 +488,13 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       if (p.ipeds_awards_year2 != null)
         lines.push(`IPEDS Awards (debt cohort year 2): ${p.ipeds_awards_year2.toLocaleString()}`);
     }
+    lines.push(
+      `Program rows: ${result.shown} | Offset: ${result.offset} | Limit: ${result.limit} | Next offset: ${result.nextOffset}`,
+    );
+    lines.push(
+      `Earnings order and min_earnings use completion_1yr_median; no legacy fallback. Provenance: ${markdownLink('College Scorecard data dictionary', result.provenance.source)}`,
+    );
+    lines.push(markdown().codeBlock(JSON.stringify(result), 'json').build());
     return [{ type: 'text', text: lines.join('\n') }];
   },
 });

@@ -5,12 +5,141 @@
 
 import { createMockContext, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { describe, expect, it } from 'vitest';
-import { CIP_ALIASES, CIP_CODES } from '@/data/cip-codes.js';
+import { CIP_ALIASES, CIP_CODES, searchCipCodes } from '@/data/cip-codes.js';
 import { lookupCipTool } from '@/mcp-server/tools/definitions/lookup-cip.tool.js';
 import official from '../fixtures/cip-2020.json' with { type: 'json' };
 
 describe('lookupCipTool', () => {
+  it('walks all capped pages in relevance order without duplicates', async () => {
+    const expected = searchCipCodes('science', Infinity).map((entry) => entry.code);
+    expect(expected.length).toBeGreaterThan(50);
+    const codes: string[] = [];
+    let offset = 0;
+    for (;;) {
+      const result = await runToolContract(lookupCipTool, {
+        query: 'science',
+        limit: 1000,
+        offset,
+      });
+      expect(result.isError).toBeFalsy();
+      const data = result.structuredContent as { results: { code: string }[]; nextOffset?: number };
+      expect(result.structuredContent).toMatchObject({
+        totalMatches: expected.length,
+        offset,
+        queryContext: { query: 'science', limit: 50, offset },
+      });
+      const text = result.content
+        .map((block) => (block.type === 'text' ? block.text : ''))
+        .join('\n');
+      expect(text).toContain(`**Offset:** ${offset}`);
+      codes.push(...data.results.map((row) => row.code));
+      if (data.nextOffset === undefined) break;
+      expect(data.nextOffset).toBe(offset + 50);
+      expect(text).toContain(`**Next offset:** ${data.nextOffset}`);
+      offset = data.nextOffset;
+      if (offset > expected.length) throw new Error('Continuation exceeded total');
+    }
+    expect(codes).toEqual(expected);
+    expect(new Set(codes).size).toBe(codes.length);
+    for (const offset of [expected.length, expected.length + 1]) {
+      const result = await runToolContract(lookupCipTool, { query: 'science', offset });
+      expect(result.structuredContent).toMatchObject({
+        results: [],
+        totalMatches: expected.length,
+        offset,
+        truncated: false,
+        shown: 0,
+      });
+      expect(result.structuredContent).not.toHaveProperty('nextOffset');
+      const text = result.content
+        .map((block) => (block.type === 'text' ? block.text : ''))
+        .join('\n');
+      expect(text).toContain(`**Offset:** ${offset}`);
+      expect(text).not.toContain('**Next offset:**');
+    }
+  });
+
+  it.each([
+    { query: '' },
+    { query: 'law', offset: -1 },
+    { query: 'law', offset: 0.5 },
+    { query: 'law', limit: 1001 },
+  ])('rejects invalid selectors %j', async (input) => {
+    const result = await runToolContract(lookupCipTool, input);
+    expect(result.isError).toBe(true);
+    expect(result.content.some((block) => block.type === 'text' && block.text.length > 0)).toBe(
+      true,
+    );
+  });
+  it('preserves verified descendant aliases and exact-match precedence', () => {
+    expect(Object.values(CIP_ALIASES).flat().length).toBeGreaterThanOrEqual(15);
+    for (const [code, aliases] of Object.entries(CIP_ALIASES))
+      for (const alias of aliases)
+        expect(searchCipCodes(alias.title.replace(/\.$/, ''))[0]?.code).toBe(code);
+    expect(searchCipCodes('11.07')[0]?.code).toBe('11.07');
+    expect(searchCipCodes('1107')[0]?.code).toBe('11.07');
+    for (const [code, title] of Object.entries(official.descendants))
+      expect(CIP_ALIASES[code.slice(0, 5)]).toContainEqual({ code, title });
+  });
+
+  it('omits continuation when matches end exactly at the cap', async () => {
+    const result = await runToolContract(lookupCipTool, { query: '14.23', limit: 1 });
+    expect(result.structuredContent).toMatchObject({
+      totalMatches: 1,
+      shown: 1,
+      cap: 1,
+      truncated: false,
+      offset: 0,
+    });
+    expect(result.structuredContent).not.toHaveProperty('nextOffset');
+    expect(
+      result.content.some(
+        (block) => block.type === 'text' && block.text.includes('**Next offset:**'),
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps raw query data while escaping query and trailer presentation', async () => {
+    const query = '*law*';
+    const result = await runToolContract(lookupCipTool, { query });
+    expect(result.structuredContent).toMatchObject({
+      query,
+      results: [],
+      totalMatches: 0,
+      queryContext: { query, offset: 0, limit: 20 },
+      truncated: false,
+    });
+    const text = result.content
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).toContain('\\*law\\*');
+    expect(text).toContain('No CIP codes matched.');
+    expect(text).toContain('```json\n{"query":"*law*","limit":20,"offset":0}\n```');
+    const formatted = lookupCipTool.format!({
+      query: 'law',
+      totalMatches: 1,
+      offset: 0,
+      results: [
+        {
+          code: '22.01',
+          title: '*Law*',
+          family: '22',
+          familyTitle: '[Legal](https://example.com)',
+        },
+      ],
+    });
+    expect(formatted).toEqual([
+      {
+        type: 'text',
+        text: 'CIP Code Lookup: "law"\n**Matches:** 1\n**Offset:** 0\n\n**22.01** — \\*Law\\*\nFamily: 22 \\[Legal\\](https://example.com)',
+      },
+    ]);
+  });
   it('matches every retained four-digit group and family to NCES CIP 2020', () => {
+    expect(CIP_CODES).toHaveLength(464);
+    expect(CIP_CODES.map((entry) => entry.code).sort()).toEqual(
+      Object.keys(official.groups).sort(),
+    );
     expect(new Set(CIP_CODES.map((entry) => entry.code)).size).toBe(CIP_CODES.length);
     for (const entry of CIP_CODES) {
       expect(entry.code).toMatch(/^\d{2}\.\d{2}$/);
@@ -24,9 +153,14 @@ describe('lookupCipTool', () => {
       expect(CIP_CODES.some((entry) => entry.code === group)).toBe(true);
       for (const alias of aliases) {
         expect(alias.code.slice(0, 5)).toBe(group);
-        expect(official.descendants[alias.code as keyof typeof official.descendants]).toBe(
-          alias.title,
-        );
+        const trades: Record<string, string> = {
+          '46.0302': 'Electrician.',
+          '48.0508': 'Welding Technology/Welder.',
+          '49.0205': 'Truck and Bus Driver/Commercial Vehicle Operator and Instructor.',
+        };
+        expect(
+          { ...official.descendants, ...trades }[alias.code as keyof typeof official.descendants],
+        ).toBe(alias.title);
       }
     }
   });
@@ -36,6 +170,10 @@ describe('lookupCipTool', () => {
     ['1107', '11.07', 'Computer Science.'],
     ['journalism', '09.04', 'Journalism.'],
     ['economics and computer science', '30.39', 'Economics and Computer Science.'],
+    ['law', '22.01', 'Law.'],
+    ['welding', '48.05', 'Precision Metal Working.'],
+    ['electrician', '46.03', 'Electrical and Power Transmission Installers.'],
+    ['truck driving', '49.02', 'Ground Transportation.'],
   ])('resolves %s to its canonical group', async (query, code, title) => {
     const result = await runToolContract(lookupCipTool, { query });
     expect(result.isError).toBeFalsy();
@@ -75,7 +213,7 @@ describe('lookupCipTool', () => {
 
   describe('enrichment on every return path', () => {
     it('emits truncation fields as false on a sub-cap result', async () => {
-      const result = await runToolContract(lookupCipTool, { query: 'nuclear', limit: 50 });
+      const result = await runToolContract(lookupCipTool, { query: '14.23', limit: 50 });
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toMatchObject({
         totalMatches: 1,
@@ -108,6 +246,7 @@ describe('lookupCipTool', () => {
         },
       ],
       totalMatches: 1,
+      offset: 0,
     };
     const blocks = lookupCipTool.format!(output);
     expect(blocks[0]!.type).toBe('text');

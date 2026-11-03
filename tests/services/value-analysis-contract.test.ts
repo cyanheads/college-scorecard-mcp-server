@@ -132,7 +132,10 @@ describe('value-analysis real-service contracts', () => {
         effective_net_price: 15000,
         net_price_basis: 'overall',
         net_price_to_annual_earnings: 0.3,
-        data_notes: [expect.stringContaining('using overall net price')],
+        data_notes: [
+          expect.stringContaining('using overall net price'),
+          expect.stringContaining('Campus prices'),
+        ],
       });
       expect(textOf(result)).toContain('$0–$30,000');
       expect(textOf(result)).toContain('Family income: $25,000');
@@ -166,7 +169,7 @@ describe('value-analysis real-service contracts', () => {
         repayment_progress_3yr: 0.79,
         earnings_6yr_median: 50000,
         debt_to_earnings_ratio: 0.34,
-        data_notes: [],
+        data_notes: [expect.stringContaining('Campus prices')],
       });
       expect(requests).toHaveLength(2);
       expect(requests.every((url) => url.searchParams.get('id') === '236948')).toBe(true);
@@ -329,5 +332,49 @@ describe('value-analysis real-service contracts', () => {
     });
     expect(textOf(result)).toContain('Invalid arguments');
     expect(api.calls).toHaveLength(0);
+  });
+
+  it('retains program-year prices and campus-versus-pooled scope through the real service', async () => {
+    serve({
+      ope6_id: '011481',
+      'latest.cost.tuition.in_state': null,
+      'latest.cost.tuition.out_of_state': null,
+      'latest.cost.tuition.program_year': 27500,
+      'latest.cost.attendance.academic_year': null,
+      'latest.cost.attendance.program_year': 43687,
+    });
+    const result = await runToolContract(valueAnalysisTool, { id: 236948 });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      ope6_id: '011481',
+      list_price: 27500,
+      effective_tuition: 27500,
+      tuition_basis: 'program_year',
+      cost_of_attendance: 43687,
+      attendance_basis: 'program_year',
+      effective_net_price: 15000,
+      net_price_to_annual_earnings: 0.3,
+      metric_scope: {
+        earnings: 'opeid6',
+        debt: 'opeid6',
+        repayment: 'opeid6',
+        completion: 'campus',
+      },
+      data_notes: expect.arrayContaining([expect.stringContaining('Campus prices')]),
+    });
+    const costFields = requests
+      .find((url) => !url.searchParams.get('fields')?.includes('earnings'))!
+      .searchParams.get('fields')!
+      .split(',');
+    expect(costFields).toEqual(
+      expect.arrayContaining([
+        'ope6_id',
+        'latest.cost.tuition.program_year',
+        'latest.cost.attendance.program_year',
+      ]),
+    );
+    expect(textOf(result)).toContain('program_year');
+    expect(textOf(result)).toContain('Campus prices');
+    expect(textOf(result)).not.toMatch(/tuition-free|manageable|Moderate/);
   });
 });

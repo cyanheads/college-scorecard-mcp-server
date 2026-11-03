@@ -5,7 +5,9 @@
 
 import { createMockContext, getEnrichment, runToolContract } from '@cyanheads/mcp-ts-core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PROGRAM_METRIC_SCOPE, PROGRAM_PROVENANCE } from '@/data/program-provenance.js';
 import { searchProgramsTool } from '@/mcp-server/tools/definitions/search-programs.tool.js';
+import { programOutcomes } from '@/services/scorecard/program-outcomes.js';
 
 const mockSearchPrograms = vi.fn();
 vi.mock('@/services/scorecard/scorecard-service.js', () => ({
@@ -178,7 +180,7 @@ describe('searchProgramsTool', () => {
       });
       const text = result.content.map((b) => (b as { text?: string }).text ?? '').join('\n');
       expect(text).toContain('**truncated:** false');
-      expect(text).toContain('**shown:** 1');
+      expect(text).toContain('**schools_shown:** 1');
       expect(text).toContain('**cap:** 20');
     });
 
@@ -188,7 +190,13 @@ describe('searchProgramsTool', () => {
       mockSearchPrograms.mockResolvedValue(response);
       const result = await runToolContract(searchProgramsTool, { cip_code: '11.07', per_page: 3 });
       expect(result.isError).toBeFalsy();
-      expect(result.structuredContent).toMatchObject({ truncated: true, shown: 3, cap: 3 });
+      expect(result.structuredContent).toMatchObject({
+        truncated: true,
+        shown: 3,
+        schools_shown: 3,
+        cap: 20,
+        per_page: 3,
+      });
     });
 
     it('does not mark a full final school page as truncated', async () => {
@@ -197,7 +205,13 @@ describe('searchProgramsTool', () => {
       mockSearchPrograms.mockResolvedValue(response);
       const result = await runToolContract(searchProgramsTool, { cip_code: '11.07', per_page: 3 });
       expect(result.isError).toBeFalsy();
-      expect(result.structuredContent).toMatchObject({ truncated: false, shown: 3, cap: 3 });
+      expect(result.structuredContent).toMatchObject({
+        truncated: false,
+        shown: 3,
+        schools_shown: 3,
+        cap: 20,
+        per_page: 3,
+      });
     });
 
     it('emits truncation fields on an empty result with the recovery notice', async () => {
@@ -223,13 +237,19 @@ describe('searchProgramsTool', () => {
               code: '52.01',
               title: 'Business',
               credential: { level: 3, title: "Bachelor's Degree" },
-              earnings: { highest: { '1_yr': { overall_median_earnings: 40000 } } },
+              earnings: {
+                highest: { '1_yr': { overall_median_earnings: 40000 } },
+                '1_yr': { overall_median_earnings: 45000 },
+              },
             },
             {
               code: '11.07',
               title: 'Computer Science',
               credential: { level: 3, title: "Bachelor's Degree" },
-              earnings: { highest: { '1_yr': { overall_median_earnings: 72000 } } },
+              earnings: {
+                highest: { '1_yr': { overall_median_earnings: 72000 } },
+                '1_yr': { overall_median_earnings: 80000 },
+              },
             },
           ],
         }),
@@ -270,11 +290,20 @@ describe('searchProgramsTool', () => {
 
   it('formats output with school info and earnings', () => {
     const output = {
+      metric_scope: PROGRAM_METRIC_SCOPE,
+      provenance: PROGRAM_PROVENANCE,
+      shown: 1,
+      offset: 0,
+      limit: 20,
+      nextOffset: null,
+      next: null,
       total: 1,
       page: 0,
       per_page: 20,
       programs: [
         {
+          ...programOutcomes({}),
+          ope6_id: null,
           school_id: 236948,
           school_name: 'University of Washington',
           school_state: 'WA',

@@ -8,6 +8,56 @@ import { describe, expect, it } from 'vitest';
 import { listFieldsTool } from '@/mcp-server/tools/definitions/list-fields.tool.js';
 
 describe('listFieldsTool', () => {
+  it('advertises the verified OPEID6 sort index', async () => {
+    const result = await runToolContract(listFieldsTool, { query: 'ope6_id' });
+    expect(result.structuredContent).toMatchObject({
+      results: [{ path: 'ope6_id', sortable: true }],
+    });
+  });
+  it('discovers program-year tuition and OPEID6 pooling identity', async () => {
+    for (const [query, path] of [
+      ['tuition.program_year', 'latest.cost.tuition.program_year'],
+      ['ope6_id', 'ope6_id'],
+      [
+        'earnings.1_yr.overall_median_earnings',
+        'latest.programs.cip_4_digit.earnings.1_yr.overall_median_earnings',
+      ],
+      [
+        'earnings.4_yr.overall_median_earnings',
+        'latest.programs.cip_4_digit.earnings.4_yr.overall_median_earnings',
+      ],
+      [
+        'earnings.1_yr.working_not_enrolled.overall_count',
+        'latest.programs.cip_4_digit.earnings.1_yr.working_not_enrolled.overall_count',
+      ],
+      [
+        'earnings.4_yr.working_not_enrolled.overall_count',
+        'latest.programs.cip_4_digit.earnings.4_yr.working_not_enrolled.overall_count',
+      ],
+    ] as const) {
+      const result = await runToolContract(listFieldsTool, { query });
+      expect(result.structuredContent).toMatchObject({
+        results: expect.arrayContaining([expect.objectContaining({ path })]),
+      });
+      expect(result.content).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'text', text: expect.stringContaining(path) }),
+        ]),
+      );
+    }
+  });
+
+  it('renders query syntax as literal text while preserving the structured query', async () => {
+    const query = '<b>_[tuition](https://example.com)_</b>';
+    const result = await runToolContract(listFieldsTool, { query });
+    expect(result.structuredContent).toMatchObject({ query });
+    const text = result.content
+      .map((block) => (block.type === 'text' ? block.text : ''))
+      .join('\n');
+    expect(text).toContain('\\<b>');
+    expect(text).toContain('\\_\\[tuition\\]');
+    expect(text).toContain('```json');
+  });
   it('returns matching fields for a known keyword', async () => {
     const ctx = createMockContext({ errors: listFieldsTool.errors });
     const input = listFieldsTool.input.parse({ query: 'tuition' });
@@ -63,14 +113,14 @@ describe('listFieldsTool', () => {
       const result = await runToolContract(listFieldsTool, { query: 'tuition', limit: 30 });
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toMatchObject({
-        totalMatches: 2,
+        totalMatches: 3,
         truncated: false,
-        shown: 2,
+        shown: 3,
         cap: 30,
       });
       const text = result.content.map((b) => (b as { text?: string }).text ?? '').join('\n');
       expect(text).toContain('**truncated:** false');
-      expect(text).toContain('**shown:** 2');
+      expect(text).toContain('**shown:** 3');
       expect(text).toContain('**cap:** 30');
     });
 

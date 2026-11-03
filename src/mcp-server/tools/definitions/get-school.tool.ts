@@ -6,7 +6,14 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, markdown, markdownLink } from '@cyanheads/mcp-ts-core/utils';
 import { degreeLevelLabel, ownershipLabel } from '@/mcp-server/format-helpers.js';
+import {
+  InstitutionContextSchema,
+  InstitutionCostsSchema,
+  institutionContext,
+  institutionCosts,
+} from '@/mcp-server/institution-context.js';
 import {
   meaningfulText,
   normalizeSchoolId,
@@ -64,6 +71,32 @@ function netPriceBracket(
 }
 
 const SchoolProfileSchema = z.object({
+  ...InstitutionContextSchema.shape,
+  ...InstitutionCostsSchema.shape,
+  program_pages: z
+    .array(
+      z
+        .object({
+          parent_path: z.string().describe('Provider program parent path.'),
+          total: z.number().describe('Total provider positions before paging.'),
+          offset: z.number().describe('Zero-based requested position.'),
+          shown: z.number().describe('Positions returned.'),
+          truncated: z.boolean().describe('Whether positions remain after this page.'),
+          nextOffset: z.number().optional().describe('Next position when more remain.'),
+          continuation: z
+            .object({
+              program_offset: z.number().describe('Next requested position.'),
+              program_limit: z.number().describe('Effective page limit.'),
+            })
+            .optional()
+            .describe('Selectors to request for this school next.'),
+        })
+        .describe('One projected program parent page.'),
+    )
+    .optional()
+    .describe(
+      'Per-parent program array paging in provider order; continuation applies to this school.',
+    ),
   id: z.number().describe('Unit ID.'),
   name: z.string().describe('Institution name.'),
   city: z.string().optional().describe('City.'),
@@ -116,7 +149,6 @@ const SchoolProfileSchema = z.object({
     .optional()
     .describe('Net price for family income $75,001–$110,000.'),
   net_price_110k_plus: z.number().optional().describe('Net price for family income $110,001+.'),
-  cost_of_attendance: z.number().optional().describe('Total cost of attendance per year.'),
   // Aid
   median_debt: z.number().optional().describe('Median debt at graduation (completers).'),
   pell_grant_rate: z.number().optional().describe('Share of students receiving Pell grants (0–1).'),
@@ -155,6 +187,21 @@ export const getSchoolTool = tool('scorecard_get_school', {
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   input: z.object({
+    program_limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(1000)
+      .default(20)
+      .describe(
+        'Projected program positions per parent array; values above 100 are clamped to 100.',
+      ),
+    program_offset: z
+      .number()
+      .int()
+      .min(0)
+      .default(0)
+      .describe('Zero-based position in each projected program parent array.'),
     id: z
       .union([
         SchoolIdStringSchema,
@@ -188,6 +235,10 @@ export const getSchoolTool = tool('scorecard_get_school', {
       .describe('Full profiles for the requested school(s).'),
     total_requested: z.number().describe('Number of IDs requested.'),
     total_found: z.number().describe('Number of records returned.'),
+    truncated: z
+      .boolean()
+      .optional()
+      .describe('True when any projected program parent has remaining positions.'),
     missing_ids: z
       .array(z.number())
       .optional()
@@ -327,6 +378,7 @@ export const getSchoolTool = tool('scorecard_get_school', {
           ? {
               id: z.number().parse(r.id),
               name: z.string().parse(r['school.name']),
+              ...institutionContext(r),
               selected_fields: Object.fromEntries(
                 selected.flatMap((path) => {
                   const match = selectedValue(r, path);
@@ -337,6 +389,8 @@ export const getSchoolTool = tool('scorecard_get_school', {
             }
           : {
               id: r.id ?? 0,
+              ...institutionContext(r),
+              ...institutionCosts(r),
               name: r['school.name'] ?? 'Unknown',
               ownership: ownershipLabel(r['school.ownership']),
               degree_level: degreeLevelLabel(r['school.degrees_awarded.predominant']),
@@ -398,9 +452,6 @@ export const getSchoolTool = tool('scorecard_get_school', {
               ...(netPriceBracket(r, '110001-plus') != null && {
                 net_price_110k_plus: netPriceBracket(r, '110001-plus'),
               }),
-              ...(r['latest.cost.attendance.academic_year'] != null && {
-                cost_of_attendance: r['latest.cost.attendance.academic_year'],
-              }),
               ...(r['latest.aid.median_debt.completers.overall'] != null && {
                 median_debt: r['latest.aid.median_debt.completers.overall'],
               }),
@@ -460,17 +511,80 @@ export const getSchoolTool = tool('scorecard_get_school', {
               }),
             },
     );
+    const programLimit = Math.min(input.program_limit, 100);
+    for (const school of schools) {
+      if (!school.selected_fields) continue;
+      const pages = new Map<
+        string,
+        NonNullable<z.infer<typeof SchoolProfileSchema>['program_pages']>[number]
+      >();
+      const slicePrograms = (value: unknown, path: string): unknown => {
+        if (Array.isArray(value)) {
+          const programParent = ['.programs.cip_4_digit', '.programs.cip_2_digit']
+            .map((suffix) => {
+              const index = path.indexOf(suffix);
+              return index >= 0 &&
+                (path.length === index + suffix.length || path[index + suffix.length] === '.')
+                ? path.slice(0, index + suffix.length)
+                : undefined;
+            })
+            .find((parent) => parent !== undefined);
+          if (programParent) {
+            const shown = value.slice(input.program_offset, input.program_offset + programLimit);
+            const nextOffset = input.program_offset + shown.length;
+            const truncated = nextOffset < value.length;
+            pages.set(programParent, {
+              parent_path: programParent,
+              total: value.length,
+              offset: input.program_offset,
+              shown: shown.length,
+              truncated,
+              ...(truncated && {
+                nextOffset,
+                continuation: { program_offset: nextOffset, program_limit: programLimit },
+              }),
+            });
+            return shown;
+          }
+          return value.map((child) => slicePrograms(child, path));
+        }
+        if (value === null || typeof value !== 'object') return value;
+        return Object.fromEntries(
+          Object.entries(value).map(([key, child]) => [
+            key,
+            slicePrograms(child, path ? `${path}.${key}` : key),
+          ]),
+        );
+      };
+      school.selected_fields = Object.fromEntries(
+        Object.entries(school.selected_fields).map(([path, value]) => [
+          path,
+          slicePrograms(value, path),
+        ]),
+      );
+      if (pages.size) school.program_pages = [...pages.values()];
+    }
 
+    const truncated = schools.some((school) =>
+      school.program_pages?.some((page) => page.truncated),
+    );
+    const notices: string[] = [];
     if (missing_ids.length || unprocessed_ids.length) {
-      ctx.enrich.notice(
+      notices.push(
         `${missing_ids.length} processed IDs returned no record. ${unprocessed_ids.length} IDs were unprocessed; request those IDs in another batch of at most 100 distinct IDs.`,
       );
     }
+    if (truncated || input.program_limit > 100)
+      notices.push(
+        `Projected program arrays use program_limit ${programLimit}; follow each school's program_pages continuation for remaining positions.`,
+      );
+    if (notices.length) ctx.enrich.notice(notices.join(' '));
 
     return {
       schools,
       total_requested: ids.length,
       total_found: schools.length,
+      truncated,
       missing_ids,
       unprocessed_ids,
     };
@@ -485,20 +599,39 @@ export const getSchoolTool = tool('scorecard_get_school', {
       lines.push(`**Missing IDs:** ${result.missing_ids.join(', ') || 'None'}`);
     if (result.unprocessed_ids)
       lines.push(`**Unprocessed IDs:** ${result.unprocessed_ids.join(', ') || 'None'}`);
+    if (result.truncated != null) lines.push(`Projected programs truncated: ${result.truncated}`);
     for (const s of result.schools) {
-      lines.push(`\n---\n### ${s.name} (ID: ${s.id})`);
+      lines.push(`\n---\n### School ${s.id}\n${escapeMarkdownInline(s.name)}`);
+      if (s.ope6_id != null) lines.push(`OPEID6: ${escapeMarkdownInline(s.ope6_id)}`);
+      if (s.metric_scope) lines.push(`Metric scope: ${JSON.stringify(s.metric_scope)}`);
+      if (s.effective_tuition != null)
+        lines.push(
+          `Effective tuition: ${fmt(s.effective_tuition, '$')} (basis: ${s.tuition_basis})`,
+        );
+      if (s.tuition_program_year != null)
+        lines.push(`Program-year tuition: ${fmt(s.tuition_program_year, '$')}`);
+      if (s.attendance_program_year != null)
+        lines.push(`Program-year attendance: ${fmt(s.attendance_program_year, '$')}`);
+      if (s.attendance_basis != null) lines.push(`Attendance basis: ${s.attendance_basis}`);
+      if (s.program_pages)
+        lines.push(
+          `Program pages: ${markdown().inlineCode(JSON.stringify(s.program_pages)).build()}`,
+        );
       if (s.selected_fields) {
         lines.push('**Selected fields:**');
         for (const [path, value] of Object.entries(s.selected_fields))
-          lines.push(`**${path}:** ${JSON.stringify(value)}`);
+          lines.push(
+            `**${escapeMarkdownInline(path)}:** ${markdown().inlineCode(JSON.stringify(value)).build()}`,
+          );
         lines.push(
-          `**Absent requested paths:** ${s.absent_fields?.join(', ') || 'None'} (absent from this response)`,
+          `**Absent requested paths:** ${escapeMarkdownInline(s.absent_fields?.join(', ') || 'None')} (absent from this response)`,
         );
       }
       if (s.ownership !== undefined) {
         const loc = [s.city, s.state].filter(Boolean).join(', ');
-        if (loc) lines.push(`**Location:** ${loc}${s.zip ? ` ${s.zip}` : ''}`);
-        if (s.url) lines.push(`**Website:** ${s.url}`);
+        if (loc)
+          lines.push(`**Location:** ${escapeMarkdownInline(`${loc}${s.zip ? ` ${s.zip}` : ''}`)}`);
+        if (s.url) lines.push(`**Website:** ${markdownLink(s.url, s.url)}`);
         lines.push(`**Type:** ${s.ownership} | **Degree:** ${s.degree_level}`);
         lines.push(`**HBCU:** ${s.hbcu == null ? 'Unknown' : s.hbcu ? 'Yes' : 'No'}`);
         if (s.men_only != null) lines.push(`**Men-only:** ${s.men_only ? 'Yes' : 'No'}`);

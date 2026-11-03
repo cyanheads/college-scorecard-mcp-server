@@ -1,6 +1,6 @@
 # college-scorecard-mcp-server - Directory Structure
 
-Generated on: 2026-10-14 14:13:15
+Generated on: 2026-11-03 08:17:39
 
 ```text
 college-scorecard-mcp-server/
@@ -40,6 +40,8 @@ college-scorecard-mcp-server/
 │   ├── add-resource/
 │   │   └── SKILL.md
 │   ├── add-service/
+│   │   └── SKILL.md
+│   ├── add-skill/
 │   │   └── SKILL.md
 │   ├── add-test/
 │   │   └── SKILL.md
@@ -124,6 +126,7 @@ college-scorecard-mcp-server/
 │   ├── build.ts
 │   ├── check-dependency-specifiers.ts
 │   ├── check-docs-sync.ts
+│   ├── check-earnings-provenance.ts
 │   ├── check-framework-antipatterns.ts
 │   ├── check-skill-versions.ts
 │   ├── check-skills-sync.ts
@@ -137,13 +140,18 @@ college-scorecard-mcp-server/
 │   ├── prune-musl-packages.ts
 │   ├── release-github.ts
 │   └── tree.ts
+├── skills/
+│   └── college-scorecard-guide/
+│       └── SKILL.md
 ├── src/
 │   ├── config/
 │   │   └── server-config.ts
 │   ├── data/
+│   │   ├── cip-2020.json
 │   │   ├── cip-codes.ts
 │   │   ├── earnings-context.ts
-│   │   └── field-catalog.ts
+│   │   ├── field-catalog.ts
+│   │   └── program-provenance.ts
 │   ├── mcp-server/
 │   │   ├── prompts/
 │   │   │   └── definitions/
@@ -151,6 +159,7 @@ college-scorecard-mcp-server/
 │   │   ├── resources/
 │   │   │   └── definitions/
 │   │   │       ├── example-schools.ts
+│   │   │       ├── programs-page.resource.ts
 │   │   │       ├── programs.resource.ts
 │   │   │       └── school.resource.ts
 │   │   ├── tools/
@@ -164,24 +173,31 @@ college-scorecard-mcp-server/
 │   │   │       ├── search-programs.tool.ts
 │   │   │       ├── search-schools.tool.ts
 │   │   │       └── value-analysis.tool.ts
-│   │   └── format-helpers.ts
+│   │   ├── format-helpers.ts
+│   │   └── institution-context.ts
 │   ├── services/
 │   │   └── scorecard/
 │   │       ├── input-normalization.ts
 │   │       ├── metric-availability.ts
+│   │       ├── program-outcomes.ts
 │   │       ├── scorecard-service.ts
 │   │       └── types.ts
 │   └── index.ts
 ├── tests/
 │   ├── fixtures/
 │   │   ├── cip-2020.json
-│   │   └── earnings-reference.json
+│   │   ├── earnings-reference.json
+│   │   └── program-provenance.json
 │   ├── prompts/
 │   │   └── compare.prompt.test.ts
 │   ├── resources/
 │   │   ├── programs.resource.test.ts
 │   │   └── school.resource.test.ts
+│   ├── scripts/
+│   │   ├── bundle-runtime.test.ts
+│   │   └── check-earnings-provenance.test.ts
 │   ├── services/
+│   │   ├── program-outcomes.test.ts
 │   │   ├── scorecard-contract.test.ts
 │   │   ├── scorecard-service.test.ts
 │   │   └── value-analysis-contract.test.ts
@@ -190,8 +206,10 @@ college-scorecard-mcp-server/
 │       ├── get-earnings.tool.test.ts
 │       ├── get-programs.tool.test.ts
 │       ├── get-school.tool.test.ts
+│       ├── institution-updates.test.ts
 │       ├── list-fields.tool.test.ts
 │       ├── lookup-cip.tool.test.ts
+│       ├── program-pages.test.ts
 │       ├── search-programs.tool.test.ts
 │       ├── search-schools.tool.test.ts
 │       └── value-analysis.tool.test.ts
@@ -211,7 +229,9 @@ college-scorecard-mcp-server/
 ├── Dockerfile
 ├── LICENSE
 ├── manifest.json
+├── mcp.json
 ├── package.json
+├── plugin.json
 ├── README.md
 ├── server.json
 ├── tsconfig.build.json

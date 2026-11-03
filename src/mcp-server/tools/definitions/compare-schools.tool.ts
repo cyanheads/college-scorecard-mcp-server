@@ -6,6 +6,12 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import {
+  InstitutionContextSchema,
+  institutionContext,
+  institutionCosts,
+} from '@/mcp-server/institution-context.js';
 import { normalizeSchoolId, SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
 import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
@@ -37,6 +43,10 @@ const ComparisonRowSchema = z.object({
           availability: MetricAvailabilitySchema.describe(
             'Available number, unavailable with unknown cause, or confirmed privacy suppression.',
           ),
+          basis: z
+            .enum(['academic_year', 'program_year'])
+            .optional()
+            .describe('Period of an effective price.'),
         })
         .describe('Per-school data point for this metric.'),
     )
@@ -48,11 +58,15 @@ const ComparisonRowSchema = z.object({
 export const compareSchoolsTool = tool('scorecard_compare_schools', {
   title: 'Compare Schools',
   description:
-    'Side-by-side comparison of 2–5 schools with ordinal competition ranks within the selected set (ties share a rank). Topics: costs (tuition, net price by income bracket, debt), admissions (acceptance rate, SAT/ACT, enrollment), outcomes (completion, earnings, repayment), aid (Pell grants, federal loans, debt, repayment). Use scorecard_get_school for full profiles.',
+    'Side-by-side comparison of the first five distinct normalized school IDs, accepting up to 1,000 raw IDs. Remaining IDs are unprocessed; request them separately. Ordinal competition ranks share ties; shared OPEID6 outcomes and mixed-period price rows are unranked. Topics: costs, admissions, outcomes, aid. Use scorecard_get_school for full profiles.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
-    ids: z.array(SchoolIdSchema).min(2).max(5).describe('Array of 2–5 school unit IDs to compare.'),
+    ids: z
+      .array(SchoolIdSchema)
+      .min(2)
+      .max(1000)
+      .describe('2–1,000 raw school IDs; first five distinct normalized IDs compared.'),
     topic: z
       .enum(['costs', 'admissions', 'outcomes', 'aid'])
       .describe('Comparison topic: costs, admissions, outcomes, or aid.'),
@@ -63,12 +77,18 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       .array(
         z
           .object({
+            ...InstitutionContextSchema.shape,
             id: z.number().describe('School unit ID.'),
             name: z.string().describe('Institution name.'),
           })
           .describe('School identity record.'),
       )
       .describe('Schools in the comparison set, in the same order as the ids input.'),
+    missing_ids: z.array(z.number()).optional().describe('Processed IDs without records.'),
+    unprocessed_ids: z
+      .array(z.number())
+      .optional()
+      .describe('Distinct normalized IDs beyond the five-school serving cap.'),
     topic: z.string().describe('The comparison topic used.'),
     rows: z
       .array(ComparisonRowSchema.describe('Comparison row for one metric.'))
@@ -171,17 +191,25 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
   ],
 
   async handler(input, ctx) {
-    input = { ...input, ids: input.ids.map(normalizeSchoolId) };
+    const ids = [...new Set(input.ids.map(normalizeSchoolId))];
+    const unprocessed_ids = ids.slice(5);
+    input = { ...input, ids: ids.slice(0, 5) };
     ctx.log.info('Comparing schools', { ids: input.ids, topic: input.topic });
     const service = getScorecardService();
 
     const response = await service.getComparisonData(input.ids, input.topic, ctx);
 
     if (response.results.length === 0) {
-      throw ctx.fail('schools_not_found', `No records found for the requested school IDs.`, {
-        ids: input.ids,
-        recovery: { hint: 'Use scorecard_search_schools to find valid school IDs first.' },
-      });
+      throw ctx.fail(
+        'schools_not_found',
+        `No records found for processed IDs ${input.ids.join(', ')}. Unprocessed IDs: ${unprocessed_ids.join(', ') || 'None'}.`,
+        {
+          ids: input.ids,
+          missing_ids: input.ids,
+          unprocessed_ids,
+          recovery: { hint: 'Use scorecard_search_schools to find valid school IDs first.' },
+        },
+      );
     }
 
     // Build a lookup by ID for consistent ordering
@@ -192,17 +220,31 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
 
     const schools = input.ids.map((id) => {
       const r = byId.get(String(id));
-      return { id: Number(id), name: r?.['school.name'] ?? '(Not found)' };
+      return {
+        id: Number(id),
+        name: r?.['school.name'] ?? '(Not found)',
+        ...(r && institutionContext(r)),
+      };
     });
 
     const found = schools.filter((s) => byId.has(String(s.id)));
     const missing = schools.filter((s) => !byId.has(String(s.id)));
+    const missing_ids = missing.map((school) => school.id);
+    const knownOpeids = found.flatMap((school) =>
+      school.ope6_id != null && school.ope6_id.trim().length > 0 ? [school.ope6_id] : [],
+    );
+    const sharedOpeid = new Set(knownOpeids).size < knownOpeids.length;
+    const notices: string[] = [];
 
     if (missing.length > 0) {
-      ctx.enrich.notice(
+      notices.push(
         `${missing.length} of ${input.ids.length} requested IDs returned no record: ${missing.map((s) => s.id).join(', ')}`,
       );
     }
+    if (unprocessed_ids.length)
+      notices.push(
+        `Unprocessed IDs: ${unprocessed_ids.join(', ')}. Request these IDs separately; only the first five distinct IDs were queried.`,
+      );
 
     // Build comparison rows per topic
     type MetricDef = {
@@ -216,9 +258,36 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       unit?: string;
       higherIsBetter: boolean;
       note?: string;
+      price?: 'tuition' | 'attendance';
     };
     const metricsByTopic: Record<string, MetricDef[]> = {
       costs: [
+        {
+          metric: 'Effective Tuition',
+          key: '',
+          price: 'tuition',
+          unit: '$',
+          higherIsBetter: false,
+        },
+        {
+          metric: 'Cost of Attendance',
+          key: '',
+          price: 'attendance',
+          unit: '$',
+          higherIsBetter: false,
+        },
+        {
+          metric: 'Program-Year Tuition',
+          key: 'latest.cost.tuition.program_year',
+          unit: '$',
+          higherIsBetter: false,
+        },
+        {
+          metric: 'Program-Year Cost of Attendance',
+          key: 'latest.cost.attendance.program_year',
+          unit: '$',
+          higherIsBetter: false,
+        },
         {
           metric: 'In-State Tuition',
           key: 'latest.cost.tuition.in_state',
@@ -404,11 +473,23 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
     };
 
     const metrics = metricsByTopic[input.topic] ?? [];
+    let hasUnrankedPooledRow = false;
+    let hasMixedPriceRow = false;
     const rows: z.infer<typeof ComparisonRowSchema>[] = metrics.map((m) => {
       const lookupKeys = m.keys ?? [m.key];
       const rawValues = found.map((s) => {
         const r = byId.get(String(s.id));
         if (!r) return { school_id: s.id, ...readMetric(undefined) };
+        if (m.price) {
+          const costs = institutionCosts(r);
+          return {
+            school_id: s.id,
+            ...readMetric(
+              m.price === 'tuition' ? costs.effective_tuition : costs.cost_of_attendance,
+            ),
+            basis: m.price === 'tuition' ? costs.tuition_basis : costs.attendance_basis,
+          };
+        }
         for (const k of lookupKeys) {
           const raw = r[k];
           if (raw != null) return { school_id: s.id, ...readMetric(raw) };
@@ -416,10 +497,31 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         return { school_id: s.id, ...readMetric(undefined) };
       });
 
-      const ranks = computeRanks(
-        rawValues.map((metric) => metric.value),
-        m.higherIsBetter,
-      );
+      const pooled =
+        m.key.startsWith('latest.earnings.') ||
+        m.key.startsWith('latest.repayment.') ||
+        m.key === 'latest.aid.median_debt.completers.overall';
+      const mixedBasis =
+        m.price != null &&
+        new Set(
+          rawValues.flatMap((value) =>
+            'basis' in value && value.basis != null ? [value.basis] : [],
+          ),
+        ).size > 1;
+      const unranked = (pooled && sharedOpeid) || mixedBasis;
+      hasUnrankedPooledRow ||= pooled && sharedOpeid;
+      hasMixedPriceRow ||= mixedBasis;
+      const contextNote = pooled
+        ? `OPEID6-pooled outcome.${sharedOpeid ? ' Shared OPEID6 identifiers make this entire row unranked.' : ''}`
+        : mixedBasis
+          ? 'Academic-year and program-year prices use different periods; this entire row is unranked.'
+          : undefined;
+      const ranks = unranked
+        ? rawValues.map(() => null)
+        : computeRanks(
+            rawValues.map((metric) => metric.value),
+            m.higherIsBetter,
+          );
 
       return {
         metric: m.metric,
@@ -427,6 +529,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           const rk = ranks[i];
           return {
             school_id: rv.school_id,
+            ...('basis' in rv && rv.basis != null && { basis: rv.basis }),
             ...(rv.value != null ? { value: rv.value } : {}),
             ...(rk != null ? { rank: rk } : {}),
             suppressed: rv.availability === 'privacy_suppressed',
@@ -434,7 +537,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           };
         }),
         ...(m.unit && { unit: m.unit }),
-        ...(m.note && { note: m.note }),
+        ...((m.note || contextNote) && { note: [m.note, contextNote].filter(Boolean).join(' ') }),
       };
     });
 
@@ -454,10 +557,19 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       })
       .filter(Boolean);
 
-    const summary = bestByMetric.length > 0 ? `${bestByMetric.join('; ')}.` : undefined;
+    const rankingNotes: string[] = [];
+    if (hasUnrankedPooledRow)
+      rankingNotes.push('Shared OPEID6 outcomes are unranked for the entire pooled metric row.');
+    if (hasMixedPriceRow)
+      rankingNotes.push('Mixed academic-year and program-year price rows are unranked.');
+    notices.push(...rankingNotes);
+    if (notices.length) ctx.enrich.notice(notices.join(' '));
+    const summary = [...bestByMetric, ...rankingNotes].join('; ') || undefined;
 
     return {
-      schools,
+      schools: found,
+      missing_ids,
+      unprocessed_ids,
       topic: input.topic,
       rows,
       ...(summary && { summary }),
@@ -470,9 +582,18 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
 
     const lines = [
       `## School Comparison: ${result.topic}`,
-      `**Schools:** ${result.schools.map((s) => `${s.name} (ID: ${s.id})`).join(', ')}`,
+      `**Schools:** ${result.schools.map((s) => `${escapeMarkdownInline(s.name)} (ID: ${s.id})`).join(', ')}`,
     ];
-    if (result.summary) lines.push(`\n> **Summary:** ${result.summary}`);
+    if (result.summary) lines.push(`\n**Summary:** ${escapeMarkdownInline(result.summary)}`);
+    if (result.missing_ids) lines.push(`Missing IDs: ${result.missing_ids.join(', ') || 'None'}`);
+    if (result.unprocessed_ids)
+      lines.push(`Unprocessed IDs: ${result.unprocessed_ids.join(', ') || 'None'}`);
+    for (const school of result.schools) {
+      if (school.ope6_id != null)
+        lines.push(`School ${school.id} OPEID6: ${escapeMarkdownInline(school.ope6_id)}`);
+      if (school.metric_scope)
+        lines.push(`School ${school.id} metric scope: ${JSON.stringify(school.metric_scope)}`);
+    }
 
     for (const row of result.rows) {
       const unitNote = row.unit ? ` (${row.unit})` : '';
@@ -493,7 +614,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         }
         const rankDisplay = v.rank != null ? `#${v.rank}` : 'N/A';
         lines.push(
-          `  ${schoolName}: ${valueDisplay} (${rankDisplay}) | Availability: ${v.availability} | Suppressed: ${v.suppressed}`,
+          `  ${escapeMarkdownInline(schoolName)}: ${valueDisplay} (${rankDisplay}) | Availability: ${v.availability} | Suppressed: ${v.suppressed}${v.basis != null ? ` | Basis: ${v.basis}` : ''}`,
         );
       }
     }

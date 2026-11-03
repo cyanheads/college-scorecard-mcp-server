@@ -6,14 +6,21 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
+import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
 import { degreeLevelLabel, ownershipLabel } from '@/mcp-server/format-helpers.js';
+import {
+  InstitutionContextSchema,
+  InstitutionCostsSchema,
+  institutionContext,
+  institutionCosts,
+} from '@/mcp-server/institution-context.js';
 import { normalizeSearchOptions } from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 export const searchSchoolsTool = tool('scorecard_search_schools', {
   title: 'Search Schools',
   description:
-    'Search and filter U.S. colleges and universities by name, location, type, size, and acceptance rate. Returns core identity and cost metrics. Use scorecard_get_school for profiles or scorecard_search_programs for program rankings. Geographic distance requires a U.S. ZIP; ZIP alone uses the provider default radius. State accepts comma-separated two-letter codes (e.g. WA,CA). Ownership: 1=public, 2=private nonprofit, 3=for-profit. Degree level: 0=non-degree, 1=certificate, 2=associate, 3=bachelor, 4=graduate.',
+    'Search and filter U.S. colleges and universities by name, location, type, size, and acceptance rate. Returns core identity and cost metrics. Use scorecard_get_school for profiles or scorecard_search_programs for programs. Geographic distance requires a U.S. ZIP; ZIP alone uses the provider default radius. State accepts comma-separated two-letter codes (e.g. WA,CA). Ownership: 1=public, 2=private nonprofit, 3=for-profit. Degree level: 0=Not classified, 1=certificate, 2=associate, 3=bachelor, 4=Entirely graduate-degree granting.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
@@ -41,7 +48,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       .max(4)
       .optional()
       .describe(
-        'Predominant degree: 0=non-degree/certificate, 1=certificate, 2=associate, 3=bachelor, 4=graduate.',
+        'Predominant degree: 0=Not classified, 1=certificate, 2=associate, 3=bachelor, 4=Entirely graduate-degree granting.',
       ),
     size_range: z
       .object({
@@ -113,6 +120,8 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       .array(
         z
           .object({
+            ...InstitutionContextSchema.shape,
+            ...InstitutionCostsSchema.shape,
             id: z.number().describe('Unit ID — use for scorecard_get_school lookups.'),
             name: z.string().describe('Institution name.'),
             city: z.string().optional().describe('City.'),
@@ -160,7 +169,9 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
         'Recovery hint when results are empty — echoes applied filters and suggests how to broaden.',
       ),
   },
-  enrichmentTrailer: { query: { render: (value) => JSON.stringify(value) } },
+  enrichmentTrailer: {
+    query: { render: (value) => markdown().inlineCode(JSON.stringify(value)).build() },
+  },
 
   errors: [
     {
@@ -299,6 +310,8 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
     const response = await service.searchSchools(options, ctx);
 
     const schools = response.results.map((r) => ({
+      ...institutionContext(r),
+      ...institutionCosts(r),
       id: r.id ?? 0,
       name: r['school.name'] ?? 'Unknown',
       ...(r['school.city'] && { city: r['school.city'] }),
@@ -361,9 +374,23 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       `**Total Matches:** ${result.total} | **Page:** ${result.page} | **Per Page:** ${result.per_page}`,
     ];
     for (const s of result.schools) {
-      lines.push(`\n### ${s.name} (ID: ${s.id})`);
+      lines.push(`\n### School ${s.id}\n${escapeMarkdownInline(s.name)}`);
+      if (s.ope6_id != null) lines.push(`OPEID6: ${escapeMarkdownInline(s.ope6_id)}`);
+      if (s.metric_scope) lines.push(`Metric scope: ${JSON.stringify(s.metric_scope)}`);
+      if (s.effective_tuition != null)
+        lines.push(
+          `Effective tuition: $${s.effective_tuition.toLocaleString()} (basis: ${s.tuition_basis})`,
+        );
+      if (s.tuition_program_year != null)
+        lines.push(`Program-year tuition: $${s.tuition_program_year.toLocaleString()}`);
+      if (s.cost_of_attendance != null)
+        lines.push(
+          `Cost of attendance: $${s.cost_of_attendance.toLocaleString()} (basis: ${s.attendance_basis})`,
+        );
+      if (s.attendance_program_year != null)
+        lines.push(`Program-year attendance: $${s.attendance_program_year.toLocaleString()}`);
       const loc = [s.city, s.state].filter(Boolean).join(', ');
-      if (loc) lines.push(`**Location:** ${loc}`);
+      if (loc) lines.push(`**Location:** ${escapeMarkdownInline(loc)}`);
       lines.push(`**Type:** ${s.ownership} | **Degree:** ${s.degree_level}`);
       if (s.enrollment != null) lines.push(`**Enrollment:** ${s.enrollment.toLocaleString()}`);
       if (s.admission_rate != null)

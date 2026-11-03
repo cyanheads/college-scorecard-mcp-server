@@ -8,13 +8,14 @@ import { resource, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { EXAMPLE_SCHOOLS } from '@/mcp-server/resources/definitions/example-schools.js';
 import { SchoolIdStringSchema } from '@/services/scorecard/input-normalization.js';
+import { programResourcePage } from '@/services/scorecard/program-outcomes.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 
 export const programsResource = resource('scorecard://programs/{id}', {
   name: 'scorecard-programs',
   title: 'School Programs',
   description:
-    'Program-level outcomes by CIP code: median earnings of graduates working and not enrolled 1 year after their highest credential, median cumulative Stafford/Grad PLUS borrowing across institutions at the same academic level, and IPEDS awards in each of the two pooled debt-cohort years (not enrollment or unique students).',
+    'First 20 program rows in provider order, with separate legacy highest-credential and current completion populations and dictionary provenance. Earnings/debt pool by OPEID6 within CIP and credential; awards are campus-specific. Follow nextUri to scorecard://programs/{id}/page/{offset}/{limit} for remaining rows.',
   mimeType: 'application/json',
   params: z.object({
     id: SchoolIdStringSchema,
@@ -123,24 +124,7 @@ export const programsResource = resource('scorecard://programs/{id}', {
       throw ctx.fail('school_not_found', `School ${params.id} not found.`, { id: params.id });
     }
 
-    const rawPrograms = record['latest.programs.cip_4_digit'] ?? [];
-
-    const programs = rawPrograms.map((p) => ({
-      code: p.code,
-      title: p.title,
-      credential_level: p.credential?.level ?? null,
-      earnings_1yr_median: p.earnings?.highest?.['1_yr']?.overall_median_earnings ?? null,
-      median_debt: p.debt?.staff_grad_plus?.all?.all_inst?.median ?? null,
-      ipeds_awards_year1: p.counts?.ipeds_awards1 ?? null,
-      ipeds_awards_year2: p.counts?.ipeds_awards2 ?? null,
-    }));
-
-    return {
-      school_id: record.id,
-      school_name: record['school.name'],
-      programs,
-      total: programs.length,
-    };
+    return programResourcePage(record, 0, 20);
   },
 
   list: async () => ({

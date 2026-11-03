@@ -1,0 +1,15 @@
+{
+  "source": "https://collegescorecard.ed.gov/files/CollegeScorecardDataDictionary.xlsx",
+  "sheet": "FieldOfStudy_Cohort_Map",
+  "cells": {
+    "K11": "AY2022-23 reported in IPEDS DCY2023-24",
+    "K12": "AY2023-24 reported in IPEDS DCY2024-25",
+    "K15": "NSLDS pooled AY2022-23, AY2023-24 cohort",
+    "K79": "Treasury AY2016-17, AY2017-18 pooled earnings cohort measured in CY2018, CY2019",
+    "K80": "Treasury AY2016-17, AY2017-18 pooled earnings cohort measured in CY2018, CY2019, inflation adjusted to 2020 dollars",
+    "K124": "Treasury AY2020-21, AY2021-22 pooled earnings cohort measured in CY2022, CY2023",
+    "K125": "Treasury AY2020-21, AY2021-22 pooled earnings cohort measured in CY2022, CY2023, inflation adjusted to 2024 dollars",
+    "K130": "Treasury AY2017-2018, AY2018-2019 pooled earnings cohort measured in CY2022, CY2023",
+    "K131": "Treasury AY2017-2018, AY2018-2019 pooled earnings cohort measured in CY2022, CY2023, inflation adjusted to 2024 dollars"
+  }
+}

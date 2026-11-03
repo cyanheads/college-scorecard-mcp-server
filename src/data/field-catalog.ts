@@ -21,6 +21,14 @@ export interface FieldEntry {
 export const FIELD_CATALOG: FieldEntry[] = [
   // Identity
   {
+    path: 'ope6_id',
+    description:
+      'Six-digit OPEID6 aggregation identity for pooled earnings, debt, and repayment; preserves leading zeros',
+    type: 'string',
+    sortable: true,
+    category: 'identity',
+  },
+  {
     path: 'id',
     description: 'Unique unit ID (use for ID-based lookups)',
     type: 'integer',
@@ -87,7 +95,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
   {
     path: 'school.degrees_awarded.predominant',
     description:
-      'Predominant degree: 0=non-degree, 1=certificate, 2=associate, 3=bachelor, 4=graduate',
+      'Predominant degree: 0=not classified, 1=certificate, 2=associate, 3=bachelor, 4=entirely graduate-degree granting',
     type: 'integer',
     sortable: true,
     category: 'identity',
@@ -129,6 +137,14 @@ export const FIELD_CATALOG: FieldEntry[] = [
   },
 
   // Cost
+  {
+    path: 'latest.cost.tuition.program_year',
+    description:
+      'Tuition and fees for program-year institutions; not academic-year in-state or out-of-state tuition',
+    type: 'integer',
+    sortable: false,
+    category: 'cost',
+  },
   {
     path: 'latest.cost.tuition.in_state',
     description: 'In-state tuition and fees (list price)',
@@ -533,6 +549,38 @@ export const FIELD_CATALOG: FieldEntry[] = [
   },
 
   // Programs — Field of Study
+  {
+    path: 'latest.programs.cip_4_digit.earnings.1_yr.overall_median_earnings',
+    description:
+      'Median earnings of graduates working and not enrolled 1 year after completion, pooled by OPEID6, CIP, and credential',
+    type: 'integer',
+    sortable: false,
+    category: 'programs',
+  },
+  {
+    path: 'latest.programs.cip_4_digit.earnings.4_yr.overall_median_earnings',
+    description:
+      'Median earnings of graduates working and not enrolled 4 years after completion, pooled by OPEID6, CIP, and credential',
+    type: 'integer',
+    sortable: true,
+    category: 'programs',
+  },
+  {
+    path: 'latest.programs.cip_4_digit.earnings.1_yr.working_not_enrolled.overall_count',
+    description:
+      'Graduate count matching completion-based 1-year program earnings; working and not enrolled',
+    type: 'integer',
+    sortable: false,
+    category: 'programs',
+  },
+  {
+    path: 'latest.programs.cip_4_digit.earnings.4_yr.working_not_enrolled.overall_count',
+    description:
+      'Graduate count matching completion-based 4-year program earnings; working and not enrolled',
+    type: 'integer',
+    sortable: false,
+    category: 'programs',
+  },
   {
     path: 'latest.programs.cip_4_digit.code',
     description: 'CIP 4-digit program code (e.g. "11.07")',

@@ -29,12 +29,12 @@ export type EarningsMetric = keyof typeof EARNINGS_FIELDS;
 
 /**
  * Source: CollegeScorecardDataDictionary.xlsx, Institution_Cohort_Map and
- * Most_Recent_Inst_Cohort_Map, retrieved 2026-10-14.
+ * Most_Recent_Inst_Cohort_Map, retrieved 2026-11-02.
  * https://collegescorecard.ed.gov/files/CollegeScorecardDataDictionary.xlsx
  * Every cell below is transcribed from the named metric's map; no year arithmetic
  * determines cohorts or inflation. NA cells retain the requested file year only.
  */
-const SIX_YEAR_CONTEXTS: Record<number, EarningsContext> & { 2020: EarningsContext } = {
+const SIX_YEAR_CONTEXTS: Record<number, EarningsContext> & { 2022: EarningsContext } = {
   2003: {
     data_file_year: 2003,
     entry_cohorts: ['1996-97', '1997-98'],
@@ -89,9 +89,15 @@ const SIX_YEAR_CONTEXTS: Record<number, EarningsContext> & { 2020: EarningsConte
     measurement_years: [2020, 2021],
     dollar_year: 2022,
   },
+  2022: {
+    data_file_year: 2022,
+    entry_cohorts: ['2015-16', '2016-17'],
+    measurement_years: [2022, 2023],
+    dollar_year: 2024,
+  },
 };
 
-const TEN_YEAR_CONTEXTS: Record<number, EarningsContext> & { 2020: EarningsContext } = {
+const TEN_YEAR_CONTEXTS: Record<number, EarningsContext> & { 2022: EarningsContext } = {
   2007: {
     data_file_year: 2007,
     entry_cohorts: ['1996-97', '1997-98'],
@@ -134,24 +140,30 @@ const TEN_YEAR_CONTEXTS: Record<number, EarningsContext> & { 2020: EarningsConte
     measurement_years: [2020, 2021],
     dollar_year: 2022,
   },
+  2022: {
+    data_file_year: 2022,
+    entry_cohorts: ['2011-12', '2012-13'],
+    measurement_years: [2022, 2023],
+    dollar_year: 2024,
+  },
 };
 
 /** Official per-metric latest file provenance, independent of a school's returned values. */
 export const LATEST_EARNINGS_CONTEXT: Record<EarningsMetric, EarningsContext> = {
-  earnings_6yr_median: SIX_YEAR_CONTEXTS[2020],
-  earnings_6yr_p25: SIX_YEAR_CONTEXTS[2020],
-  earnings_6yr_p75: SIX_YEAR_CONTEXTS[2020],
-  earnings_6yr_non_male_median: SIX_YEAR_CONTEXTS[2020],
-  earnings_6yr_male_median: SIX_YEAR_CONTEXTS[2020],
+  earnings_6yr_median: SIX_YEAR_CONTEXTS[2022],
+  earnings_6yr_p25: SIX_YEAR_CONTEXTS[2022],
+  earnings_6yr_p75: SIX_YEAR_CONTEXTS[2022],
+  earnings_6yr_non_male_median: SIX_YEAR_CONTEXTS[2022],
+  earnings_6yr_male_median: SIX_YEAR_CONTEXTS[2022],
   earnings_8yr_median: {
-    data_file_year: 2020,
-    entry_cohorts: ['2011-12', '2012-13'],
-    measurement_years: [2020, 2021],
-    dollar_year: 2022,
+    data_file_year: 2022,
+    entry_cohorts: ['2013-14', '2014-15'],
+    measurement_years: [2022, 2023],
+    dollar_year: 2024,
   },
-  earnings_10yr_median: TEN_YEAR_CONTEXTS[2020],
-  earnings_10yr_p25: TEN_YEAR_CONTEXTS[2020],
-  earnings_10yr_p75: TEN_YEAR_CONTEXTS[2020],
+  earnings_10yr_median: TEN_YEAR_CONTEXTS[2022],
+  earnings_10yr_p25: TEN_YEAR_CONTEXTS[2022],
+  earnings_10yr_p75: TEN_YEAR_CONTEXTS[2022],
 };
 
 /** Read verified historical metadata; unavailable metadata is never inferred. */
