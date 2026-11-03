@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.5.0](changelog/0.5.x/0.5.0.md) — 2026-11-03
+
+Page program inventories and compare college outcomes with explicit populations, pooling, and price periods.
+
 ## [0.4.0](changelog/0.4.x/0.4.0.md) — 2026-10-14 · ⚠️ Breaking
 
 Correct Scorecard earnings, availability, and program comparisons.
