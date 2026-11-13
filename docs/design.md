@@ -6,9 +6,9 @@
 
 | Name | Description | Key Inputs | Annotations |
 |:-----|:------------|:-----------|:------------|
-| `scorecard_search_schools` | Search institutions with optional single-sex filters and API sorting. Returns core identity and cost metrics. | `query`, `state`, `ownership`, `degree_level`, `size_range`, `acceptance_rate_range`, `zip`, `distance`, `cip_code`, `sort`, `men_only`, `women_only`, `per_page`, `page` | `readOnlyHint` |
+| `scorecard_search_schools` | Search institutions with provider-side filters and API sorting. Returns core identity, operating certification, and cost metrics. | `query`, `state`, `ownership`, `degree_level`, `size_range`, `acceptance_rate_range`, `zip`, `distance`, `cip_code`, `sort`, `men_only`, `women_only`, `operating`, `hbcu`, `locale`, `max_net_price`, `min_completion_rate`, `per_page`, `page` | `readOnlyHint` |
 | `scorecard_get_school` | Institutional profiles with costs, outcomes, scope, and optional raw projections. Serves the first 100 distinct IDs; reports missing and unprocessed IDs separately. | `id` (string or array), `fields`, `program_limit`, `program_offset` | `readOnlyHint`, `idempotentHint` |
-| `scorecard_compare_schools` | Compare the first five distinct IDs from up to 1,000 raw inputs. Independent values share competition ranks; shared pooled outcomes and mixed-period price rows are unranked. | `ids`, `topic` | `readOnlyHint` |
+| `scorecard_compare_schools` | Compare the first five distinct IDs from up to 1,000 raw inputs. Rank eligible prices and outcomes when at least two schools are found. | `ids`, `topic` | `readOnlyHint` |
 | `scorecard_get_programs` | Paged completion-based one-/four-year and legacy highest-credential outcomes, debt, and campus awards, each with provenance. Current one-year completion earnings drive ordering and filters. | `id`, `cip_code`, `min_earnings`, `credential_level`, `limit`, `offset` | `readOnlyHint` |
 | `scorecard_search_programs` | Find programs by CIP × credential or local title filter. School totals remain upstream counts; row continuation drains current matches before advancing the school page. | `cip_code`, `credential_level`, `program_name`, `state`, `ownership`, `max_net_price`, `min_earnings`, `max_debt`, `per_page`, `page`, `limit`, `offset` | `readOnlyHint` |
 | `scorecard_get_earnings` | Earnings of federally aided undergraduate entrants working and not enrolled, regardless of completion: 6/8/10-year medians, 6/10-year percentiles, non-male/male 6-year medians, and per-metric availability/provenance. `years` selects data-file vintages. | `id`, `years` | `readOnlyHint`, `idempotentHint` |
@@ -34,7 +34,7 @@
 
 ## Overview
 
-College Scorecard MCP Server wraps the U.S. Department of Education's College Scorecard API (`api.data.gov/ed/collegescorecard/v1`), which covers ~6,500 Title IV institutions and ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings. The server surfaces the most decision-relevant slice of that data — program graduate earnings and institution entrant earnings, net price by income bracket, debt loads, and completion rates — via a tool surface designed for the questions people actually ask about colleges: "Is this school worth it?", "Which CS programs pay off?", "How do these schools compare?", "Find schools matching my criteria."
+`college-scorecard-mcp-server` wraps the U.S. Department of Education's College Scorecard API (`api.data.gov/ed/collegescorecard/v1`), which covers ~6,500 Title IV institutions and ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings. The server surfaces the most decision-relevant slice of that data — program graduate earnings and institution entrant earnings, net price by income bracket, debt loads, and completion rates — via a tool surface designed for the questions people actually ask about colleges: "Is this school worth it?", "Which CS programs pay off?", "How do these schools compare?", "Find schools matching my criteria."
 
 Program-level outcomes separate completion-based one-/four-year earnings from legacy highest-credential one-year earnings, with provenance for each population. Current one-year completion earnings drive filters and ordering within each fetched school page; callers follow row and school continuation to inspect the full scoped set.
 
@@ -51,7 +51,7 @@ Target users: agents helping with college research, financial planning, career e
 - Field-of-study (program) data trails institution data by ~2 years due to earnings cohort lag
 - Earnings data uses the `latest.*` shorthand for most recent cohort; individual year fields available for trend queries
 - Null/absent metrics are unavailable with unknown cause. Only explicit `PS` / `PrivacySuppressed` markers establish privacy suppression, without establishing its particular cause.
-- School sorting forwards indexed API fields; program search orders the fetched page locally by earnings
+- School sorting forwards the sort expression to the API. Program search orders the fetched page locally by earnings.
 - Batch ID lookup normalizes and deduplicates up to 1,000 raw elements, fetches the first 100 distinct IDs, and reports missing processed IDs separately from unchecked excess
 - Geographic filtering accepts ZIP-only provider defaults, ZIP+4, and nonnegative bare/mi/km decimal radii; a meaningful distance requires ZIP
 - Programs returned as nested array under school record; filtering by CIP code returns only matching programs unless `all_programs_nested=true` is passed
@@ -118,7 +118,7 @@ Answers "is this school worth it?" by combining data that otherwise requires two
 
 | # | Call | Purpose |
 |:--|:-----|:--------|
-| 1 | `GET /schools?id={id}&fields=...cost,aid,completion...` | Fetch tuition, net price by income bracket, median debt, 3-yr repayment rate, graduation rate |
+| 1 | `GET /schools?id={id}&fields=...cost,aid,completion,repayment...` | Fetch costs, debt, completion, operating certification, and repayment |
 | 2 | `GET /schools?id={id}&fields=...earnings...` | Fetch median + P25/P75 earnings at 6, 8, 10 years |
 | — | Synthesize | Compute debt-to-earnings and net-price ratios using 6-year earnings; select applicable net price bracket if `family_income` provided; flag missing data |
 
@@ -127,11 +127,13 @@ Calls 1 and 2 run in parallel via `Promise.all`, each restricted to the requeste
 **Output fields:**
 - `school_name`, `school_id` — for chaining
 - `list_price` — available academic-year tuition, otherwise program-year tuition, with `tuition_basis`; attendance selects its basis independently
-- `net_price_overall`, `net_price_for_income`, `family_income`, `applicable_income_bracket` — source estimates and requested income/bracket, retained even when the bracket estimate is unavailable
+- `net_price_overall`, `net_price_for_income`, `family_income`, `applicable_income_bracket` — source estimates, effective income, and applicable bracket, retained even when the bracket estimate is unavailable
 - `effective_net_price`, `net_price_basis` — price used in the annual-earnings ratio and its basis (`income_bracket`, `overall`, or `unavailable`); notes disclose missing-bracket fallback
 - `median_debt` — median debt at graduation
 - `graduation_rate` — completion rate at 150% normal time
-- `repayment_progress_3yr` — share of borrowers paying down principal 3 years after entering repayment
+- `operating` — current operating certification when reported
+- `repayment_progress_3yr` and `repayment_progress_3yr_context` — historical share of borrowers paying down principal three years after repayment entry, with publication status and vintage
+- `borrower_repayment` — two- and four-year undergraduate federal Direct Loan status series with separate denominators and provenance
 - `earnings_6yr_median`, `earnings_10yr_median` — institution-level, across all programs
 - `debt_to_earnings_ratio` — `median_debt / earnings_6yr_median`
 - `net_price_to_annual_earnings` — income-specific net price when available, otherwise overall net price, divided by median annual earnings measured 6 years after entry
@@ -139,7 +141,7 @@ Calls 1 and 2 run in parallel via `Promise.all`, each restricted to the requeste
 
 ### `scorecard_compare_schools`
 
-Returns structured comparison rows with metric values and ordinal ranks within the result set, plus a comparison summary. The ranks place each school's values within the selected group.
+Returns comparison rows with reported values and availability. Eligible rows can include ranks and a leader summary for the result set.
 
 | # | Call | Purpose |
 |:--|:-----|:--------|
@@ -147,20 +149,28 @@ Returns structured comparison rows with metric values and ordinal ranks within t
 | — | Normalize | Compute ordinal competition ranks from strictly better available values (1, 1, 3); summaries name co-leaders |
 
 Topics and their field sets:
-- `costs` — tuition in/out, net price by income bracket, median debt
+- `costs` — effective tuition and attendance, academic-year and program-year prices, overall and income-bracket net prices, median debt
 - `admissions` — acceptance rate, SAT/ACT range, enrollment size
-- `outcomes` — graduation rate, earnings at 6/10yr, loan repayment rate
-- `aid` — Pell grant rate, federal loan rate, median debt, repayment rate
+- `outcomes` — graduation rate, earnings at 6/10yr, historical three-year repayment progress, median debt
+- `aid` — Pell grant rate, federal loan rate, median debt, historical three-year repayment progress, overall net price
 
 ---
 
 ## Design Decisions
 
-### `compare_schools` is not redundant with `get_school` multi-ID
+### Comparison ranks
 
-`get_school` with an array returns profiles. `compare_schools` normalizes and deduplicates up to 1,000 raw IDs before selecting the first five. Missing processed IDs and untouched excess are separate. Its metric rows use ordinal competition ranks, input presentation order, and tied-leader summaries. Missing values receive no rank.
+`get_school` with an array returns profiles. `compare_schools` normalizes and deduplicates up to 1,000 raw IDs before selecting the first five. Missing processed IDs and untouched excess are separate. Eligible price, debt, completion, earnings, and repayment rows use competition ranks and tied-leader summaries. Admissions metrics and aid participation rates are descriptive and remain unranked. A single found school returns values without ranks or a leader summary. Missing values receive no rank.
 
 Institution earnings, debt, and repayment pool at OPEID6. A repeated known OPEID6 leaves the entire pooled comparison row unranked, preventing repeated observations from appearing to be independent campus results. Campus completion retains ordinary ranks. Effective tuition and attendance each prefer available academic-year values, including zero, then program-year values; rows mixing periods remain unranked. Raw academic tuition and program prices stay separately named. Net-price income fallback is unchanged and never substitutes tuition.
+
+### Repayment populations and vintage
+
+`src/data/repayment-context.ts` records vintages from the Scorecard data dictionary. The discontinued declining-balance metric measures borrowers paying down principal. The three-year value comes from the 2016–17 file and covers FY2013–FY2014 repayment-entry cohorts measured in FY2016–FY2017. School profiles and value analysis attach context when that value is available. Outcomes and aid comparison rows include the same provenance.
+
+Default school profiles and value analysis also return making progress, default, and paid in full, three of eight mutually exclusive statuses for OPEID6-pooled undergraduate federal Direct Loan borrowers. The two-year series comes from the 2019–20 file and covers AY2016–17 and AY2017–18 cohorts measured in 2018–19 and 2019–20. The four-year series comes from the 2020–21 file and covers AY2015–16 and AY2016–17 cohorts measured in 2019–20 and 2020–21. Each series uses its own cohort count when reported.
+
+Decimal shares carry a numeric value and the reported text. Bins such as `0.15-0.19` and `<=0.05` carry the reported text only. Null, absence, and `NA` are unavailable. Explicit privacy markers retain their own availability state. Unsupported rates are unavailable with a notice and leave the rest of the profile usable. Comparison ranks use the historical declining-balance rate only.
 
 ### `latest.*` shorthand vs. explicit year fields
 
@@ -177,6 +187,8 @@ Custom school projections always fetch `id`, `school.name`, and `ope6_id`, then 
 ### Input normalization and classified failures
 
 Required IDs are positive safe integers. Base-10 strings accept whitespace, leading zeros, plus, decimal, and exponent forms only when they resolve to a positive safe integer; hexadecimal, nonfinite, fractional, zero, negative, and unsafe values are rejected. An empty profile batch retains semantic ValidationError with zero requests. State lists/case, four-digit CIP dots, sort direction case, and reversed range endpoints normalize without dropping meaningful filters. Optional blanks are unset; required catalog queries are nonblank. Each search echoes effective selectors in a replayable shape, including defaults and excluding selectors ignored by precedence.
+
+Negative school and program `max_net_price`, program `max_debt`, and value-analysis `family_income` normalize to zero with a notice. Historical earnings years are deduplicated in caller order. CIP lookup maps six-digit codes to their four-digit group with a notice. Program selectors continue to accept four-digit codes.
 
 `fetchWithTimeout` bounds the complete exchange, including the body, and composes caller cancellation; `withRetry` retains classified transient failures. HTTP 400/422 validation and 401/403 authentication fail once, while throttling, deadlines, and availability use distinct reasons and retry policy. Safe provider diagnostics survive; credentials and credential-bearing URLs do not. Each API consumer declares its own inline reason/recovery contracts; resource factories attach recovery and request correlation without changing successful sparse JSON.
 
@@ -196,17 +208,25 @@ Program rows expose `earnings_availability`, comparison cells expose `availabili
 
 ### Sortable vs. non-sortable fields
 
-School search forwards `sort` to the API without a local fallback. The catalog follows the dictionary's INDEX column; the API's derived `latest.cost.avg_net_price.overall` field also supports ascending and descending sorting. Six-year earnings is not sortable. Program search sorts current one-year completion earnings within the fetched school page and applies `min_earnings` locally because that field is not indexed. School totals remain upstream counts before local filtering; program totals and row offsets describe the current school page.
+School search forwards `sort` to the API without a local fallback. The catalog records observed sort support, which can differ from the dictionary's INDEX column. Overall average net price supports sorting. Income-bracket prices, six-year earnings, and pooled full-time retention are available for projection without sort support. Four-year retention covers first-time, full-time bachelor's or equivalent degree seekers. Less-than-four-year retention covers first-time, full-time degree or certificate seekers. Both measure return the next fall.
 
-### Program populations and single-sex flags
+Program search sorts current one-year completion earnings within the fetched school page and applies `min_earnings` locally. School totals remain upstream counts before local filtering. Program totals and row offsets describe the current school page.
+
+### Program populations
 
 Program debt uses `debt.staff_grad_plus.all.all_inst.median` to retain same-level borrowing at previously attended institutions. Legacy `earnings_1yr_median` and `earnings_count` retain the highest-credential series. Additive `completion_1yr_*` and `completion_4yr_*` fields use their own working/not-enrolled counts and availability. Missing current earnings never fall back to legacy earnings. `src/data/program-provenance.ts` records separate cohorts, measurement years, dollar bases, and dictionary cells for each series, debt, and campus awards. Earnings/debt pool at OPEID6 within CIP and credential; IPEDS awards are campus counts, not enrollment or unique students. Existing nullable resource scalars remain nullable; all paths preserve zero.
 
-School `men_only` / `women_only` filters distinguish true (1), false (0), and omission (including unknown). Profiles preserve both known values as booleans and omit unknown flags.
+Program tool text leads with the two completion series, then presents legacy earnings separately. It carries the same scope, provenance, availability, and continuation as the structured result.
+
+### School discovery and certification
+
+`operating`, `hbcu`, `men_only`, and `women_only` forward true as 1 and false as 0. Omission leaves unknown records eligible. The API applies these flags and the inclusive price and completion bounds before pagination. Locale groups use provider ranges 11–13 (city), 21–23 (suburb), 31–33 (town), and 41–43 (rural). Threshold and locale filters require reported values.
+
+Default search rows, profiles, comparisons, value analysis, and the school resource expose operating certification as a boolean when reported. False indicates a lack of current certification. Actual closure requires separate verification. Custom projections preserve the raw provider value.
 
 ### CIP and field catalog as embedded static data
 
-Both lookups use embedded government reference data: all 464 current NCES CIP 2020 four-digit groups and 84 selected field entries. CIP titles and two-digit families match the official CSV exactly. Verified six-digit descendant titles provide keyword aliases while results retain the canonical four-digit group. Deleted and moved-from rows are excluded. Dotted/undotted code queries normalize equivalently. Offline tests fixture the official groups, families, and selected descendants.
+Both lookups use embedded government reference data: all 464 current NCES CIP 2020 four-digit groups and 94 selected field entries. CIP titles and two-digit families match the official CSV exactly. Verified six-digit descendant titles provide keyword aliases while results retain the canonical four-digit group. Deleted and moved-from rows are excluded. Dotted/undotted code queries normalize equivalently. Offline tests fixture the official groups, families, and selected descendants.
 
 ---
 
@@ -217,7 +237,7 @@ Both lookups use embedded government reference data: all 464 current NCES CIP 20
 - Field-of-study data trails institution data by ~2 academic years
 - 1,000 requests/hour rate limit — `scorecard_search_programs` across all states can exhaust budget; callers should scope searches
 - Geographic filtering requires U.S. zip codes
-- The school `sort` parameter only works on indexed fields; unsupported expressions return an API error
+- Unsupported school sort expressions return an API error
 - No historical cost or admissions trends — the API has annual snapshots but trend queries would require multiple API calls; not in scope for v1
 
 ---
@@ -247,7 +267,7 @@ All external operations use this single endpoint. Program data is nested under s
 | `fields` | comma-list | Field selection — strongly recommended; full records can be 50KB+. |
 | `per_page` | 1–100 | Records per page (default 20). |
 | `page` | int | Zero-indexed page number. |
-| `sort` | `field:asc|desc` | Sort on indexed fields only (integer, float, autocomplete, name types). |
+| `sort` | `field:asc\|desc` | Sort on a field with API sort support. |
 | `zip` | US zip | Geographic center for distance filter. |
 | `distance` | `{n}mi` or `{n}km` | Radius around zip code center. |
 | `all_programs_nested` | bool | Return all program objects, not just those matching a program filter. |

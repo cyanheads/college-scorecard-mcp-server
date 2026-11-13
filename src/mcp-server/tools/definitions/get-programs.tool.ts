@@ -6,13 +6,18 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { escapeMarkdownInline, markdown, markdownLink } from '@cyanheads/mcp-ts-core/utils';
+import { markdown } from '@cyanheads/mcp-ts-core/utils';
 import {
   PROGRAM_METRIC_SCOPE,
   PROGRAM_PROVENANCE,
   ProgramMetricScopeSchema,
   ProgramProvenanceSchema,
 } from '@/data/program-provenance.js';
+import {
+  programMetricLines,
+  programProvenanceLines,
+  programText,
+} from '@/mcp-server/program-format.js';
 import {
   normalizeCip,
   normalizeSchoolId,
@@ -202,7 +207,7 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.Conflict,
       when: 'The provider reported a request conflict.',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -210,14 +215,14 @@ export const getProgramsTool = tool('scorecard_get_programs', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check field names with scorecard_list_fields or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {
@@ -406,37 +411,24 @@ export const getProgramsTool = tool('scorecard_get_programs', {
 
   format: (result) => {
     const lines = [
-      `## Programs at ${escapeMarkdownInline(result.school_name)} (ID: ${result.school_id})`,
-      `**Total:** ${result.total} | **Suppressed:** ${result.suppressed_count} | **Unavailable:** ${result.unavailable_count}`,
+      `## Programs at ${programText(result.school_name)} (ID: ${result.school_id})`,
+      `OPEID6: ${result.ope6_id == null ? 'null' : programText(result.ope6_id)}`,
+      `**Total:** ${result.total} | **Legacy earnings suppressed:** ${result.suppressed_count} | **Legacy earnings unavailable:** ${result.unavailable_count}`,
     ];
     for (const p of result.programs) {
       lines.push(
-        `\n**${escapeMarkdownInline(p.code)}** — ${escapeMarkdownInline(p.title ?? 'Unknown title')} (${escapeMarkdownInline(p.credential_level)})`,
+        `\n**${programText(p.code)}** — ${programText(p.title ?? 'Unknown title')} (${programText(p.credential_level)})`,
       );
-      lines.push(
-        `Legacy 1-Year Earnings after Highest Credential (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : 'Not available'} | Availability: ${p.earnings_availability} | Suppressed: ${p.suppressed}`,
-      );
-      if (p.suppression_note != null) lines.push(`Suppression note: ${p.suppression_note}`);
-      if (p.median_debt != null)
-        lines.push(
-          `Median Cumulative Stafford/Grad PLUS Debt (all institutions, same academic level): $${p.median_debt.toLocaleString()}`,
-        );
-      if (p.ipeds_awards_year1 != null)
-        lines.push(`IPEDS Awards (debt cohort year 1): ${p.ipeds_awards_year1.toLocaleString()}`);
-      if (p.ipeds_awards_year2 != null)
-        lines.push(`IPEDS Awards (debt cohort year 2): ${p.ipeds_awards_year2.toLocaleString()}`);
-      if (p.earnings_count != null)
-        lines.push(
-          `Earnings Cohort (working, not enrolled; 1 year after highest credential): ${p.earnings_count} graduates`,
-        );
+      lines.push(...programMetricLines(p));
+      if (p.credential_level_code != null)
+        lines.push(`- Provider credential level: ${p.credential_level_code}`);
+      if (p.credential_title != null)
+        lines.push(`- Provider credential title: ${programText(p.credential_title)}`);
     }
     lines.push(
-      `Program rows: ${result.shown} | Offset: ${result.offset} | Limit: ${result.limit} | Next offset: ${result.nextOffset} | Truncated: ${result.truncated}`,
+      `\nProgram rows: ${result.shown} | Offset: ${result.offset} | Limit: ${result.limit} | Next offset: ${result.nextOffset} | Truncated: ${result.truncated}`,
+      ...programProvenanceLines(result.provenance, result.metric_scope),
     );
-    lines.push(
-      `Earnings order and min_earnings use completion_1yr_median; no legacy fallback. Provenance: ${markdownLink('College Scorecard data dictionary', result.provenance.source)}`,
-    );
-    lines.push(markdown().codeBlock(JSON.stringify(result), 'json').build());
     return [{ type: 'text', text: lines.join('\n') }];
   },
 });

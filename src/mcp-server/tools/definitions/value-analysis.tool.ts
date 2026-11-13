@@ -7,12 +7,23 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import { describeLegacyRepayment, LEGACY_REPAYMENT_CONTEXT } from '@/data/repayment-context.js';
 import {
+  formatOperatingCertification,
   InstitutionContextSchema,
   InstitutionCostsSchema,
   institutionContext,
   institutionCosts,
+  OperatingCertificationSchema,
+  operatingCertification,
+  operatingCertificationNotice,
 } from '@/mcp-server/institution-context.js';
+import {
+  borrowerRepaymentSchema,
+  formatBorrowerRepayment,
+  legacyRepaymentContextSchema,
+  readBorrowerRepayment,
+} from '@/mcp-server/repayment.js';
 import { SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
 import { readMetric } from '@/services/scorecard/metric-availability.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
@@ -48,16 +59,20 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       .number()
       .optional()
       .describe(
-        'Annual family income in dollars. When provided, net price is shown for the applicable income bracket.',
+        'Annual family income in dollars. Selects the applicable net-price bracket. Negative amounts are treated as zero.',
       ),
   }),
 
   output: z.object({
     ...InstitutionContextSchema.shape,
+    operating: OperatingCertificationSchema,
     ...InstitutionCostsSchema.shape,
     school_id: z.number().describe('School unit ID.'),
     school_name: z.string().describe('Institution name.'),
-    family_income: z.number().optional().describe('Requested annual family income in dollars.'),
+    family_income: z
+      .number()
+      .optional()
+      .describe('Annual family income in dollars used to select the net-price bracket.'),
     effective_net_price: z
       .number()
       .optional()
@@ -96,6 +111,10 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       .describe(
         'Share of borrowers paying down principal (declining loan balance) 3 years after entering repayment (0–1).',
       ),
+    repayment_progress_3yr_context: legacyRepaymentContextSchema
+      .optional()
+      .describe('Publication vintage and status of the declining-balance measure.'),
+    borrower_repayment: borrowerRepaymentSchema,
     graduation_rate: z.number().optional().describe('Completion rate at 150% normal time (0–1).'),
     // Earnings
     earnings_6yr_median: z.number().optional().describe('Median earnings 6 years after entry.'),
@@ -121,12 +140,16 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       ),
   }),
 
+  enrichment: {
+    notice: z.string().optional().describe('Input normalization or provider data notice.'),
+  },
+
   errors: [
     {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.Conflict,
       when: 'The provider reported a request conflict.',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -134,14 +157,14 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check field names with scorecard_list_fields or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {
@@ -209,7 +232,9 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
   ],
 
   async handler(input, ctx) {
-    ctx.log.info('Running value analysis', { id: input.id, family_income: input.family_income });
+    const requestedIncome = input.family_income;
+    const family_income = requestedIncome != null && requestedIncome < 0 ? 0 : requestedIncome;
+    ctx.log.info('Running value analysis', { id: input.id, family_income });
     const service = getScorecardService();
 
     const [costResponse, earningsResponse] = await service.getValueAnalysisData(input.id, ctx);
@@ -255,18 +280,17 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
         costRecord['latest.cost.net_price.private.by_income_level.110001-plus'],
     };
 
-    const net_price_for_income =
-      input.family_income != null ? netPriceForIncome(input.family_income, brackets) : undefined;
+    const net_price_for_income = netPriceForIncome(family_income, brackets);
 
     const applicable_income_bracket =
-      input.family_income != null
-        ? input.family_income <= 30000
+      family_income != null
+        ? family_income <= 30000
           ? '$0–$30,000'
-          : input.family_income <= 48000
+          : family_income <= 48000
             ? '$30,001–$48,000'
-            : input.family_income <= 75000
+            : family_income <= 75000
               ? '$48,001–$75,000'
-              : input.family_income <= 110000
+              : family_income <= 110000
                 ? '$75,001–$110,000'
                 : '$110,001+'
         : undefined;
@@ -274,6 +298,13 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     const median_debt = costRecord['latest.aid.median_debt.completers.overall'] ?? undefined;
     const repayment_progress_3yr =
       costRecord['latest.repayment.repayment_cohort.3_year_declining_balance'] ?? undefined;
+    const { series: borrower_repayment, notices } = readBorrowerRepayment(costRecord);
+    if (requestedIncome !== family_income) {
+      notices.unshift(
+        `Requested family income of ${requestedIncome} dollars was treated as 0 dollars.`,
+      );
+    }
+    if (notices.length) ctx.enrich.notice(notices.join(' '));
     const graduation_rate = costRecord['latest.completion.rate_suppressed.overall'] ?? undefined;
 
     const earnings6 = readMetric(earningsRecord['latest.earnings.6_yrs_after_entry.median']);
@@ -301,7 +332,10 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
 
     // Collect data quality notes
     const data_notes: string[] = [];
-    if (input.family_income != null && net_price_for_income == null)
+    const certification = operatingCertification(costRecord);
+    const certificationNotice = operatingCertificationNotice([{ id: schoolId, ...certification }]);
+    if (certificationNotice) data_notes.push(certificationNotice);
+    if (family_income != null && net_price_for_income == null)
       data_notes.push(
         `Net price for requested bracket ${applicable_income_bracket} is unavailable; ${net_price_overall != null ? 'using overall net price' : 'overall net price is also unavailable'}.`,
       );
@@ -328,10 +362,11 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
 
     return {
       ...institutionContext(costRecord),
+      ...certification,
       ...costs,
       school_id: schoolId,
       school_name: schoolName,
-      ...(input.family_income != null && { family_income: input.family_income }),
+      ...(family_income != null && { family_income }),
       ...(effectiveNetPrice != null && { effective_net_price: effectiveNetPrice }),
       net_price_basis,
       ...(list_price != null && { list_price }),
@@ -339,7 +374,11 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       ...(net_price_for_income != null && { net_price_for_income }),
       ...(applicable_income_bracket && { applicable_income_bracket }),
       ...(median_debt != null && { median_debt }),
-      ...(repayment_progress_3yr != null && { repayment_progress_3yr }),
+      ...(repayment_progress_3yr != null && {
+        repayment_progress_3yr,
+        repayment_progress_3yr_context: LEGACY_REPAYMENT_CONTEXT[3],
+      }),
+      borrower_repayment,
       ...(graduation_rate != null && { graduation_rate }),
       ...(earnings_6yr_median != null && { earnings_6yr_median }),
       ...(earnings_10yr_median != null && { earnings_10yr_median }),
@@ -353,6 +392,7 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
     const lines = [
       `## Value Analysis\n${escapeMarkdownInline(result.school_name)} (ID: ${result.school_id})`,
     ];
+    if (result.operating != null) lines.push(formatOperatingCertification(result.operating));
     if (result.ope6_id != null) lines.push(`OPEID6: ${escapeMarkdownInline(result.ope6_id)}`);
     if (result.metric_scope) lines.push(`Metric scope: ${JSON.stringify(result.metric_scope)}`);
     if (result.effective_tuition != null)
@@ -370,7 +410,9 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
 
     lines.push('\n**Cost**');
     if (result.family_income != null)
-      lines.push(`Family income: $${result.family_income.toLocaleString()}`);
+      lines.push(
+        `Family income: $${result.family_income.toLocaleString()} | Reported value: ${result.family_income}`,
+      );
     if (result.applicable_income_bracket != null)
       lines.push(`Requested income bracket: ${result.applicable_income_bracket}`);
     lines.push(
@@ -391,8 +433,13 @@ export const valueAnalysisTool = tool('scorecard_value_analysis', {
       lines.push(`Median Debt at Graduation: $${result.median_debt.toLocaleString()}`);
     if (result.repayment_progress_3yr != null)
       lines.push(
-        `3-Year Repayment Progress (declining balance): ${(result.repayment_progress_3yr * 100).toFixed(1)}%`,
+        `3-Year Repayment Progress (declining balance): ${(result.repayment_progress_3yr * 100).toFixed(1)}% | Reported value: ${result.repayment_progress_3yr}`,
       );
+    if (result.repayment_progress_3yr_context)
+      lines.push(
+        `3-year repayment provenance: ${describeLegacyRepayment(result.repayment_progress_3yr_context)}.`,
+      );
+    lines.push(...formatBorrowerRepayment(result.borrower_repayment));
     if (result.graduation_rate != null)
       lines.push(`Completion Rate (150%): ${(result.graduation_rate * 100).toFixed(1)}%`);
 

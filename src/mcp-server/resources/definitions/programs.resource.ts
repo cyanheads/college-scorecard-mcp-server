@@ -25,7 +25,7 @@ export const programsResource = resource('scorecard://programs/{id}', {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider reported a conflict (HTTP 409).',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -46,14 +46,14 @@ export const programsResource = resource('scorecard://programs/{id}', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check field names with scorecard_list_fields or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {

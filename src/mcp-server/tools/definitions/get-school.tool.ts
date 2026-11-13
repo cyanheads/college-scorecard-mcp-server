@@ -7,13 +7,24 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { escapeMarkdownInline, markdown, markdownLink } from '@cyanheads/mcp-ts-core/utils';
+import { describeLegacyRepayment, LEGACY_REPAYMENT_CONTEXT } from '@/data/repayment-context.js';
 import { degreeLevelLabel, ownershipLabel } from '@/mcp-server/format-helpers.js';
 import {
+  formatOperatingCertification,
   InstitutionContextSchema,
   InstitutionCostsSchema,
   institutionContext,
   institutionCosts,
+  OperatingCertificationSchema,
+  operatingCertification,
+  operatingCertificationNotice,
 } from '@/mcp-server/institution-context.js';
+import {
+  borrowerRepaymentSchema,
+  formatBorrowerRepayment,
+  legacyRepaymentContextSchema,
+  readBorrowerRepayment,
+} from '@/mcp-server/repayment.js';
 import {
   meaningfulText,
   normalizeSchoolId,
@@ -22,6 +33,13 @@ import {
 } from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 import type { RawSchoolRecord } from '@/services/scorecard/types.js';
+
+function profileBorrowerRepayment(record: RawSchoolRecord, notices: string[]) {
+  const { series, notices: providerNotices } = readBorrowerRepayment(record);
+  if (providerNotices.length)
+    notices.push(`School ${record.id ?? 'unknown'}: ${providerNotices.join(' ')}`);
+  return { borrower_repayment: series };
+}
 
 function fmt(n: number | null | undefined, prefix = ''): string {
   if (n == null) return 'Not available';
@@ -72,6 +90,7 @@ function netPriceBracket(
 
 const SchoolProfileSchema = z.object({
   ...InstitutionContextSchema.shape,
+  operating: OperatingCertificationSchema,
   ...InstitutionCostsSchema.shape,
   program_pages: z
     .array(
@@ -162,6 +181,14 @@ const SchoolProfileSchema = z.object({
     .describe(
       'Share of borrowers paying down principal (declining loan balance) 3 years after entering repayment (0–1).',
     ),
+  repayment_progress_3yr_context: legacyRepaymentContextSchema
+    .optional()
+    .describe('Publication vintage and status of the declining-balance measure.'),
+  borrower_repayment: borrowerRepaymentSchema
+    .optional()
+    .describe(
+      'Undergraduate federal Direct Loan repayment statuses and cohort metadata. Included in the default profile.',
+    ),
   // Completion
   completion_rate: z.number().optional().describe('Completion rate at 150% normal time.'),
   // Earnings
@@ -250,7 +277,10 @@ export const getSchoolTool = tool('scorecard_get_school', {
   }),
 
   enrichment: {
-    notice: z.string().optional().describe('Warning when some requested IDs returned no record.'),
+    notice: z
+      .string()
+      .optional()
+      .describe('Missing records, certification, projection, or provider data notices.'),
   },
 
   errors: [
@@ -258,7 +288,7 @@ export const getSchoolTool = tool('scorecard_get_school', {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.Conflict,
       when: 'The provider reported a request conflict.',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -266,14 +296,14 @@ export const getSchoolTool = tool('scorecard_get_school', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check field names with scorecard_list_fields or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {
@@ -372,6 +402,7 @@ export const getSchoolTool = tool('scorecard_get_school', {
       );
     }
 
+    const notices: string[] = [];
     const schools = response.results.map(
       (r): z.infer<typeof SchoolProfileSchema> =>
         selected?.length
@@ -389,7 +420,9 @@ export const getSchoolTool = tool('scorecard_get_school', {
             }
           : {
               id: r.id ?? 0,
+              ...profileBorrowerRepayment(r, notices),
               ...institutionContext(r),
+              ...operatingCertification(r),
               ...institutionCosts(r),
               name: r['school.name'] ?? 'Unknown',
               ownership: ownershipLabel(r['school.ownership']),
@@ -464,6 +497,7 @@ export const getSchoolTool = tool('scorecard_get_school', {
               ...(r['latest.repayment.repayment_cohort.3_year_declining_balance'] != null && {
                 repayment_progress_3yr:
                   r['latest.repayment.repayment_cohort.3_year_declining_balance'],
+                repayment_progress_3yr_context: LEGACY_REPAYMENT_CONTEXT[3],
               }),
               ...(r['latest.completion.rate_suppressed.overall'] != null && {
                 completion_rate: r['latest.completion.rate_suppressed.overall'],
@@ -568,7 +602,6 @@ export const getSchoolTool = tool('scorecard_get_school', {
     const truncated = schools.some((school) =>
       school.program_pages?.some((page) => page.truncated),
     );
-    const notices: string[] = [];
     if (missing_ids.length || unprocessed_ids.length) {
       notices.push(
         `${missing_ids.length} processed IDs returned no record. ${unprocessed_ids.length} IDs were unprocessed; request those IDs in another batch of at most 100 distinct IDs.`,
@@ -578,6 +611,8 @@ export const getSchoolTool = tool('scorecard_get_school', {
       notices.push(
         `Projected program arrays use program_limit ${programLimit}; follow each school's program_pages continuation for remaining positions.`,
       );
+    const certificationNotice = operatingCertificationNotice(schools);
+    if (certificationNotice) notices.push(certificationNotice);
     if (notices.length) ctx.enrich.notice(notices.join(' '));
 
     return {
@@ -602,6 +637,7 @@ export const getSchoolTool = tool('scorecard_get_school', {
     if (result.truncated != null) lines.push(`Projected programs truncated: ${result.truncated}`);
     for (const s of result.schools) {
       lines.push(`\n---\n### School ${s.id}\n${escapeMarkdownInline(s.name)}`);
+      if (s.operating != null) lines.push(formatOperatingCertification(s.operating));
       if (s.ope6_id != null) lines.push(`OPEID6: ${escapeMarkdownInline(s.ope6_id)}`);
       if (s.metric_scope) lines.push(`Metric scope: ${JSON.stringify(s.metric_scope)}`);
       if (s.effective_tuition != null)
@@ -670,8 +706,13 @@ export const getSchoolTool = tool('scorecard_get_school', {
         if (s.federal_loan_rate != null)
           lines.push(`Federal Loan Rate: ${fmtPct(s.federal_loan_rate)}`);
         lines.push(
-          `3-Year Repayment Progress (declining balance): ${fmtPct(s.repayment_progress_3yr)}`,
+          `3-Year Repayment Progress (declining balance): ${fmtPct(s.repayment_progress_3yr)}${s.repayment_progress_3yr != null ? ` | Reported value: ${s.repayment_progress_3yr}` : ''}`,
         );
+        if (s.repayment_progress_3yr_context)
+          lines.push(
+            `3-year repayment provenance: ${describeLegacyRepayment(s.repayment_progress_3yr_context)}.`,
+          );
+        if (s.borrower_repayment) lines.push(...formatBorrowerRepayment(s.borrower_repayment));
 
         lines.push('\n**Outcomes**');
         lines.push(`Completion Rate (150%): ${fmtPct(s.completion_rate)}`);

@@ -7,10 +7,15 @@
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { escapeMarkdownInline } from '@cyanheads/mcp-ts-core/utils';
+import { LEGACY_REPAYMENT_3YR_NOTE } from '@/data/repayment-context.js';
 import {
+  formatOperatingCertification,
   InstitutionContextSchema,
   institutionContext,
   institutionCosts,
+  OperatingCertificationSchema,
+  operatingCertification,
+  operatingCertificationNotice,
 } from '@/mcp-server/institution-context.js';
 import { normalizeSchoolId, SchoolIdSchema } from '@/services/scorecard/input-normalization.js';
 import { MetricAvailabilitySchema, readMetric } from '@/services/scorecard/metric-availability.js';
@@ -19,7 +24,7 @@ import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 /** Rank available values by the number of strictly better values; ties share a rank. */
 function computeRanks(
   values: (number | null | undefined)[],
-  higherIsBetter = true,
+  higherIsBetter: boolean,
 ): (number | null)[] {
   return values.map((value) =>
     value == null
@@ -38,7 +43,12 @@ const ComparisonRowSchema = z.object({
         .object({
           school_id: z.number().describe('School unit ID.'),
           value: z.number().optional().describe('Raw metric value. Omitted when not available.'),
-          rank: z.number().optional().describe('Rank within this comparison set (1=best).'),
+          rank: z
+            .number()
+            .optional()
+            .describe(
+              'Competition rank for eligible outcome or price rows with at least two distinct found schools (1=best).',
+            ),
           suppressed: z.boolean().describe('True only for explicit provider privacy markers.'),
           availability: MetricAvailabilitySchema.describe(
             'Available number, unavailable with unknown cause, or confirmed privacy suppression.',
@@ -58,7 +68,7 @@ const ComparisonRowSchema = z.object({
 export const compareSchoolsTool = tool('scorecard_compare_schools', {
   title: 'Compare Schools',
   description:
-    'Side-by-side comparison of the first five distinct normalized school IDs, accepting up to 1,000 raw IDs. Remaining IDs are unprocessed; request them separately. Ordinal competition ranks share ties; shared OPEID6 outcomes and mixed-period price rows are unranked. Topics: costs, admissions, outcomes, aid. Use scorecard_get_school for full profiles.',
+    'Side-by-side comparison of the first five distinct normalized school IDs, accepting up to 1,000 raw IDs. Remaining IDs are unprocessed; request them separately. Prices, debt, completion, earnings, and repayment use competition ranks with shared ties when at least two distinct schools are found. Admissions and aid participation, shared OPEID6 outcomes, and mixed-period price rows are unranked. Topics: costs, admissions, outcomes, aid. Use scorecard_get_school for full profiles.',
   annotations: { readOnlyHint: true, openWorldHint: true },
 
   input: z.object({
@@ -78,6 +88,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         z
           .object({
             ...InstitutionContextSchema.shape,
+            operating: OperatingCertificationSchema,
             id: z.number().describe('School unit ID.'),
             name: z.string().describe('Institution name.'),
           })
@@ -100,7 +111,10 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
   }),
 
   enrichment: {
-    notice: z.string().optional().describe('Warning if some requested IDs returned no record.'),
+    notice: z
+      .string()
+      .optional()
+      .describe('Missing records, certification, or comparison notices.'),
   },
 
   errors: [
@@ -108,7 +122,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.Conflict,
       when: 'The provider reported a request conflict.',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -116,14 +130,14 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check field names with scorecard_list_fields or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {
@@ -224,10 +238,12 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         id: Number(id),
         name: r?.['school.name'] ?? '(Not found)',
         ...(r && institutionContext(r)),
+        ...operatingCertification(r),
       };
     });
 
     const found = schools.filter((s) => byId.has(String(s.id)));
+    const singleton = found.length === 1;
     const missing = schools.filter((s) => !byId.has(String(s.id)));
     const missing_ids = missing.map((school) => school.id);
     const knownOpeids = found.flatMap((school) =>
@@ -246,6 +262,9 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         `Unprocessed IDs: ${unprocessed_ids.join(', ')}. Request these IDs separately; only the first five distinct IDs were queried.`,
       );
 
+    const certificationNotice = operatingCertificationNotice(found);
+    if (certificationNotice) notices.push(certificationNotice);
+
     // Build comparison rows per topic
     type MetricDef = {
       metric: string;
@@ -256,11 +275,11 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
        */
       keys?: string[];
       unit?: string;
-      higherIsBetter: boolean;
+      higherIsBetter: boolean | null;
       note?: string;
       price?: 'tuition' | 'attendance';
     };
-    const metricsByTopic: Record<string, MetricDef[]> = {
+    const metricsByTopic: Record<typeof input.topic, MetricDef[]> = {
       costs: [
         {
           metric: 'Effective Tuition',
@@ -368,39 +387,39 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           metric: 'Acceptance Rate',
           key: 'latest.admissions.admission_rate.overall',
           unit: '%',
-          higherIsBetter: false,
+          higherIsBetter: null,
           note: 'Lower may indicate more selectivity',
         },
         {
           metric: 'SAT Average',
           key: 'latest.admissions.sat_scores.average.overall',
-          higherIsBetter: true,
+          higherIsBetter: null,
         },
         {
           metric: 'SAT Math 25th Pct',
           key: 'latest.admissions.sat_scores.25th_percentile.math',
-          higherIsBetter: true,
+          higherIsBetter: null,
         },
         {
           metric: 'SAT Math 75th Pct',
           key: 'latest.admissions.sat_scores.75th_percentile.math',
-          higherIsBetter: true,
+          higherIsBetter: null,
         },
         {
           metric: 'ACT 25th Pct',
           key: 'latest.admissions.act_scores.25th_percentile.cumulative',
-          higherIsBetter: true,
+          higherIsBetter: null,
         },
         {
           metric: 'ACT 75th Pct',
           key: 'latest.admissions.act_scores.75th_percentile.cumulative',
-          higherIsBetter: true,
+          higherIsBetter: null,
         },
         {
           metric: 'Enrollment',
           key: 'latest.student.size',
           unit: 'students',
-          higherIsBetter: true,
+          higherIsBetter: null,
         },
       ],
       outcomes: [
@@ -427,7 +446,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           key: 'latest.repayment.repayment_cohort.3_year_declining_balance',
           unit: '%',
           higherIsBetter: true,
-          note: 'Share of borrowers paying down principal (declining loan balance)',
+          note: LEGACY_REPAYMENT_3YR_NOTE,
         },
         {
           metric: 'Median Debt at Graduation',
@@ -441,14 +460,14 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           metric: 'Pell Grant Rate',
           key: 'latest.aid.pell_grant_rate',
           unit: '%',
-          higherIsBetter: true,
+          higherIsBetter: null,
           note: 'Share of students receiving Pell grants',
         },
         {
           metric: 'Federal Loan Rate',
           key: 'latest.aid.federal_loan_rate',
           unit: '%',
-          higherIsBetter: false,
+          higherIsBetter: null,
         },
         {
           metric: 'Median Debt at Graduation',
@@ -461,7 +480,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           key: 'latest.repayment.repayment_cohort.3_year_declining_balance',
           unit: '%',
           higherIsBetter: true,
-          note: 'Share of borrowers paying down principal (declining loan balance)',
+          note: LEGACY_REPAYMENT_3YR_NOTE,
         },
         {
           metric: 'Avg Net Price (overall)',
@@ -472,7 +491,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
       ],
     };
 
-    const metrics = metricsByTopic[input.topic] ?? [];
+    const metrics = metricsByTopic[input.topic];
     let hasUnrankedPooledRow = false;
     let hasMixedPriceRow = false;
     const rows: z.infer<typeof ComparisonRowSchema>[] = metrics.map((m) => {
@@ -508,7 +527,8 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
             'basis' in value && value.basis != null ? [value.basis] : [],
           ),
         ).size > 1;
-      const unranked = (pooled && sharedOpeid) || mixedBasis;
+      const { higherIsBetter } = m;
+      const descriptive = higherIsBetter === null;
       hasUnrankedPooledRow ||= pooled && sharedOpeid;
       hasMixedPriceRow ||= mixedBasis;
       const contextNote = pooled
@@ -516,17 +536,30 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         : mixedBasis
           ? 'Academic-year and program-year prices use different periods; this entire row is unranked.'
           : undefined;
-      const ranks = unranked
-        ? rawValues.map(() => null)
-        : computeRanks(
-            rawValues.map((metric) => metric.value),
-            m.higherIsBetter,
-          );
+      const ranks =
+        descriptive || singleton || (pooled && sharedOpeid) || mixedBasis
+          ? undefined
+          : computeRanks(
+              rawValues.map((metric) => metric.value),
+              higherIsBetter,
+            );
+      const note = [
+        m.note,
+        contextNote,
+        descriptive
+          ? 'Descriptive metric; no shared student preference defines a best value.'
+          : undefined,
+        singleton
+          ? 'Only one distinct school was found; comparison ranks require at least two.'
+          : undefined,
+      ]
+        .filter(Boolean)
+        .join(' ');
 
       return {
         metric: m.metric,
         values: rawValues.map((rv, i) => {
-          const rk = ranks[i];
+          const rk = ranks?.[i];
           return {
             school_id: rv.school_id,
             ...('basis' in rv && rv.basis != null && { basis: rv.basis }),
@@ -537,34 +570,38 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
           };
         }),
         ...(m.unit && { unit: m.unit }),
-        ...((m.note || contextNote) && { note: [m.note, contextNote].filter(Boolean).join(' ') }),
+        ...(note && { note }),
       };
     });
 
     // Build a brief summary of the most notable differences
-    const bestByMetric = rows
-      .filter((r) => r.values.some((v) => v.value != null))
-      .slice(0, 3)
-      .map((r) => {
-        const best = r.values.filter((v) => v.rank === 1 && !v.suppressed);
-        if (best.length === 0) return null;
-        const names = best.map(
-          (value) =>
-            schools.find((school) => school.id === value.school_id)?.name ??
-            String(value.school_id),
-        );
-        return `${names.join(' and ')} ${best.length > 1 ? 'tie for best' : 'leads'} on ${r.metric}`;
-      })
-      .filter(Boolean);
+    const bestByMetric: string[] = [];
+    for (const row of rows) {
+      const leaders = row.values.filter((value) => value.rank === 1);
+      if (leaders.length === 0) continue;
+      const names = leaders.map(
+        ({ school_id }) => byId.get(String(school_id))?.['school.name'] ?? '(Not found)',
+      );
+      bestByMetric.push(
+        `${names.join(' and ')} ${leaders.length > 1 ? 'tie for best' : 'leads'} on ${row.metric}`,
+      );
+      if (bestByMetric.length === 3) break;
+    }
 
     const rankingNotes: string[] = [];
+    if (singleton)
+      notices.push(
+        'Only one distinct school was found; values are shown without ranks or a leader summary.',
+      );
+    if (metrics.some((metric) => metric.higherIsBetter === null))
+      notices.push('Descriptive admissions and aid participation metrics are unranked.');
     if (hasUnrankedPooledRow)
       rankingNotes.push('Shared OPEID6 outcomes are unranked for the entire pooled metric row.');
     if (hasMixedPriceRow)
       rankingNotes.push('Mixed academic-year and program-year price rows are unranked.');
     notices.push(...rankingNotes);
     if (notices.length) ctx.enrich.notice(notices.join(' '));
-    const summary = [...bestByMetric, ...rankingNotes].join('; ') || undefined;
+    const summary = bestByMetric.length ? [...bestByMetric, ...rankingNotes].join('; ') : undefined;
 
     return {
       schools: found,
@@ -589,6 +626,8 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
     if (result.unprocessed_ids)
       lines.push(`Unprocessed IDs: ${result.unprocessed_ids.join(', ') || 'None'}`);
     for (const school of result.schools) {
+      if (school.operating != null)
+        lines.push(`School ${school.id} ${formatOperatingCertification(school.operating)}`);
       if (school.ope6_id != null)
         lines.push(`School ${school.id} OPEID6: ${escapeMarkdownInline(school.ope6_id)}`);
       if (school.metric_scope)
@@ -614,7 +653,7 @@ export const compareSchoolsTool = tool('scorecard_compare_schools', {
         }
         const rankDisplay = v.rank != null ? `#${v.rank}` : 'N/A';
         lines.push(
-          `  ${escapeMarkdownInline(schoolName)}: ${valueDisplay} (${rankDisplay}) | Availability: ${v.availability} | Suppressed: ${v.suppressed}${v.basis != null ? ` | Basis: ${v.basis}` : ''}`,
+          `  ${escapeMarkdownInline(schoolName)}: ${valueDisplay} (${rankDisplay})${v.value != null ? ` | Reported value: ${v.value}` : ''} | Availability: ${v.availability} | Suppressed: ${v.suppressed}${v.basis != null ? ` | Basis: ${v.basis}` : ''}`,
         );
       }
     }

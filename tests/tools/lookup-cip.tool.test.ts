@@ -10,6 +10,48 @@ import { lookupCipTool } from '@/mcp-server/tools/definitions/lookup-cip.tool.js
 import official from '../fixtures/cip-2020.json' with { type: 'json' };
 
 describe('lookupCipTool', () => {
+  it.each(['11.0701', '110701'])(
+    'groups specialization %s and echoes the effective query',
+    async (query) => {
+      const result = await runToolContract(lookupCipTool, { query, limit: 1 });
+      const notice = `CIP code ${query} was grouped under the four-digit code 11.07.`;
+      expect(result.structuredContent).toMatchObject({
+        query: '11.07',
+        queryContext: { query: '11.07', limit: 1, offset: 0 },
+        results: [{ code: '11.07', title: 'Computer Science.' }],
+        totalMatches: 1,
+        truncated: false,
+        notice,
+      });
+      expect(
+        result.content.map((block) => ('text' in block ? block.text : '')).join('\n'),
+      ).toContain(notice);
+    },
+  );
+
+  it.each([
+    ['110701', '11.07', 1, 'This CIP offset is exhausted; use offset 0 to restart.'],
+    ['999999', '99.99', 0, 'No CIP codes matched.'],
+  ] as const)(
+    'keeps grouping and recovery guidance for empty pages of %s',
+    async (query, group, totalMatches, guidance) => {
+      const result = await runToolContract(lookupCipTool, { query, offset: 3 });
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({
+        query: group,
+        results: [],
+        totalMatches,
+        offset: 3,
+      });
+      for (const text of [
+        (result.structuredContent as { notice?: string } | undefined)?.notice,
+        result.content.map((block) => ('text' in block ? block.text : '')).join('\n'),
+      ]) {
+        expect(text).toContain(query);
+        expect(text).toContain(guidance);
+      }
+    },
+  );
   it('walks all capped pages in relevance order without duplicates', async () => {
     const expected = searchCipCodes('science', Infinity).map((entry) => entry.code);
     expect(expected.length).toBeGreaterThan(50);

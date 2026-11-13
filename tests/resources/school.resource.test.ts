@@ -18,6 +18,17 @@ describe('schoolResource', () => {
     vi.clearAllMocks();
   });
 
+  it('exposes the reported certification flag in resource JSON', async () => {
+    mockGetSchoolProfiles.mockResolvedValue({
+      results: [{ id: 120838, 'school.operating': 0 }],
+    });
+    const result = await schoolResource.handler(
+      schoolResource.params!.parse({ id: '120838' }),
+      createMockContext({ errors: schoolResource.errors }),
+    );
+    expect(JSON.parse(JSON.stringify(result))).toMatchObject({ id: 120838, operating: false });
+  });
+
   it('returns a school profile for a valid ID', async () => {
     mockGetSchoolProfiles.mockResolvedValue({
       metadata: { total: 1, page: 0, per_page: 1 },

@@ -97,6 +97,7 @@ export interface RawSchoolRecord {
   'school.men_only'?: number | null;
   'school.minority_serving.historically_black'?: number | null;
   'school.name'?: string;
+  'school.operating'?: number | null;
   'school.ownership'?: number | null;
   'school.school_url'?: string;
   'school.state'?: string;
@@ -129,6 +130,14 @@ export interface ScorecardApiError {
   }>;
 }
 
+/** Provider locale groups exposed as school-search selectors. */
+export const SCHOOL_LOCALE_RANGES = {
+  city: '11..13',
+  suburb: '21..23',
+  town: '31..33',
+  rural: '41..43',
+} as const;
+
 /** Options for a search query */
 export interface ScorecardSearchOptions {
   /** Acceptance rate range [min, max] 0-1 */
@@ -143,12 +152,20 @@ export interface ScorecardSearchOptions {
   extraParams?: Record<string, string | number>;
   /** Custom field selection (comma-separated) */
   fields?: string;
+  hbcu?: boolean;
   /** School unit ID(s) for batch lookup */
   id?: string | number | Array<string | number>;
+  locale?: keyof typeof SCHOOL_LOCALE_RANGES;
+  /** Inclusive average net price ceiling in dollars. */
+  maxNetPrice?: number;
   /** Restrict to men-only institutions (true) or explicitly non-men-only (false). */
   menOnly?: boolean;
+  /** Inclusive overall completion-rate floor as a proportion. */
+  minCompletionRate?: number;
   /** School name full-text filter */
   name?: string | undefined;
+  /** Restrict to institutions with the reported current operating certification flag. */
+  operating?: boolean;
   /** Ownership type: 1=public, 2=private nonprofit, 3=for-profit */
   ownership?: number;
   page?: number;

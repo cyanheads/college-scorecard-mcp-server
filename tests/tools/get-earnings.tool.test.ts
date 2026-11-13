@@ -88,6 +88,20 @@ describe('getEarningsTool', () => {
     expect(result.suppressed).toBe(false);
   });
 
+  it('requests and renders distinct historical years in caller order', async () => {
+    mockGetSchoolEarnings.mockResolvedValue(makeEarningsResult());
+    const result = await runToolContract(getEarningsTool, {
+      id: 236948,
+      years: [2022, 2020, 2022, 2021, 2020],
+    });
+    expect(mockGetSchoolEarnings.mock.calls[0]?.[1]).toEqual([2022, 2020, 2021]);
+    expect(result.structuredContent).toMatchObject({
+      trend: [{ year: 2022 }, { year: 2020 }, { year: 2021 }],
+    });
+    const text = result.content.map((block) => ('text' in block ? block.text : '')).join('\n');
+    expect(text.match(/^Year: \d+$/gm)).toEqual(['Year: 2022', 'Year: 2020', 'Year: 2021']);
+  });
+
   it('marks null earnings unavailable without asserting suppression', async () => {
     mockGetSchoolEarnings.mockResolvedValue(
       makeEarningsResult({
@@ -124,10 +138,10 @@ describe('getEarningsTool', () => {
     expect(result.trend![0]!.year).toBe(2011);
   });
 
-  it('omits trend when years not supplied', async () => {
+  it.each([undefined, []])('omits trend for snapshot-only years %j', async (years) => {
     mockGetSchoolEarnings.mockResolvedValue(makeEarningsResult());
     const ctx = createMockContext({ errors: getEarningsTool.errors });
-    const input = getEarningsTool.input.parse({ id: 236948 });
+    const input = getEarningsTool.input.parse({ id: 236948, years });
     const result = await getEarningsTool.handler(input, ctx);
     expect(result.trend).toBeUndefined();
   });

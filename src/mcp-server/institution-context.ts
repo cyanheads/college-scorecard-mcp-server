@@ -1,8 +1,41 @@
-/** Shared institution metric scope and independently selected price bases. */
+/** Shared operating certification, institution metric scope, and independent price bases. */
 import { z } from '@cyanheads/mcp-ts-core';
 import type { RawSchoolRecord } from '@/services/scorecard/types.js';
 
 const BasisSchema = z.enum(['academic_year', 'program_year']);
+
+/** Optional current operating certification reported by Scorecard. */
+export const OperatingCertificationSchema = z
+  .boolean()
+  .optional()
+  .describe(
+    'Current operating certification. False means the institution lacks current certification.',
+  );
+
+/** Map the provider flag without assigning a status to unreported values. */
+export function operatingCertification(record: RawSchoolRecord | undefined): {
+  operating?: boolean;
+} {
+  const flag = record?.['school.operating'];
+  return flag === 0 || flag === 1 ? { operating: flag === 1 } : {};
+}
+
+/** Explain explicitly uncertified records in a tool's existing notices. */
+export function operatingCertificationNotice(
+  schools: { id: number; operating?: boolean | undefined }[],
+) {
+  const ids = schools.filter((school) => school.operating === false).map((school) => school.id);
+  if (ids.length === 0) return;
+  return ids.length === 1
+    ? `School ${ids[0]} lacks current operating certification according to Scorecard.`
+    : `Schools ${ids.join(', ')} lack current operating certification according to Scorecard.`;
+}
+
+/** Render the reported flag in text alongside the structured value. */
+export function formatOperatingCertification(operating: boolean) {
+  return `Operating certification: ${operating ? 'Yes' : 'No'}`;
+}
+
 /** Additive institution fields shared by tools and the school resource. */
 export const InstitutionContextSchema = z.object({
   ope6_id: z.string().optional().describe('Provider OPEID6 identifier, preserving leading zeros.'),

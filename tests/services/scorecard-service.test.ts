@@ -49,6 +49,25 @@ describe('ScorecardService', () => {
     expect(params.get('page')).toBe('2');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+  it('requests operating certification on default school and value cost projections', async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request) =>
+      Response.json({ metadata: { total: 0, page: 0, per_page: 1 }, results: [] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new ScorecardService({} as never, {} as never);
+    const ctx = createMockContext();
+    await service.searchSchools({}, ctx);
+    await service.getSchoolProfiles([235088], undefined, ctx);
+    for (const topic of ['costs', 'admissions', 'outcomes', 'aid'] as const)
+      await service.getComparisonData([235088], topic, ctx);
+    await service.getValueAnalysisData(235088, ctx);
+    expect(fetchMock).toHaveBeenCalledTimes(8);
+    const fields = fetchMock.mock.calls.map(([url]) =>
+      new URL(String(url)).searchParams.get('fields')?.split(','),
+    );
+    for (const projection of fields.slice(0, 7)) expect(projection).toContain('school.operating');
+    expect(fields[7]).not.toContain('school.operating');
+  });
   beforeEach(() => {
     vi.stubEnv('SCORECARD_API_KEY', 'test-key');
     vi.useFakeTimers();

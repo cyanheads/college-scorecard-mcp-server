@@ -451,7 +451,11 @@ describe('Scorecard caller contracts', () => {
           error: { code, data: { reason, status, recovery: { hint: expect.any(String) } } },
         });
         expect(calls).toBe(attempts);
-        expect(textOf(result)).toContain('Provider detail');
+        expect(textOf(result)).toContain(`Scorecard API returned HTTP ${status}.`);
+        expect(textOf(result)).not.toContain('Provider detail');
+        expect(JSON.stringify(result.structuredContent)).not.toContain('Provider detail');
+        expect(result.structuredContent).not.toHaveProperty('error.data.body');
+        expect(result.structuredContent).not.toHaveProperty('error.data.responseBody');
         expect(JSON.stringify(result)).not.toContain('test-key');
         for (const definition of [schoolResource, programsResource]) {
           calls = 0;
@@ -1007,7 +1011,7 @@ describe('Scorecard caller contracts', () => {
       expect(requests).toHaveLength(0);
     });
 
-    it('classifies permanent provider validation once with safe detail', async () => {
+    it('classifies permanent provider validation once with actionable recovery', async () => {
       vi.useFakeTimers();
       let calls = 0;
       api.route({
@@ -1023,10 +1027,15 @@ describe('Scorecard caller contracts', () => {
       expect(result.structuredContent).toMatchObject({
         error: {
           code: JsonRpcErrorCode.InvalidParams,
-          data: { reason: 'api_invalid_params', status: 400 },
+          data: {
+            reason: 'api_invalid_params',
+            status: 400,
+            recovery: { hint: expect.stringContaining('Check ZIP and distance filters') },
+          },
         },
       });
-      expect(textOf(result)).toContain('Invalid ZIP');
+      expect(textOf(result)).toContain('Check ZIP and distance filters');
+      expect(textOf(result)).not.toContain('Invalid ZIP');
       expect(textOf(result)).not.toContain('SCORECARD_API_KEY');
       expect(calls).toBe(1);
     });
@@ -1078,7 +1087,7 @@ describe('Scorecard caller contracts', () => {
           data: {
             reason: 'api_validation',
             recovery: {
-              hint: 'Correct the reported selector or required ID before retrying the request.',
+              hint: 'Check selectors and required IDs before retrying the request.',
             },
           },
         },
@@ -1169,7 +1178,7 @@ describe('Scorecard caller contracts', () => {
           ...(tool === searchProgramsTool && { schools_shown: 1 }),
         });
         expect(textOf(result)).toContain(
-          tool === searchProgramsTool ? '"shown":2' : '**shown:** 1',
+          tool === searchProgramsTool ? 'Program rows: 2' : '**shown:** 1',
         );
         expect(textOf(result)).toContain('**8 total**');
       },
@@ -1227,7 +1236,7 @@ describe('Scorecard caller contracts', () => {
           if (tool === getProgramsTool) {
             expect(row.earnings_count).toBe(value);
             expect(text).toContain(
-              `Earnings Cohort (working, not enrolled; 1 year after highest credential): ${value}`,
+              `Legacy highest-credential 1-year earnings: $70,000 (available) | Population count: ${value.toLocaleString('en-US')} (available)`,
             );
           }
         }
@@ -1426,7 +1435,7 @@ describe('Scorecard caller contracts', () => {
         const text = textOf(result);
         expect(text).toContain(`**truncated:** ${more}`);
         expect(text).toContain(
-          tool === searchProgramsTool ? `"shown":${count * 3}` : `**shown:** ${count}`,
+          tool === searchProgramsTool ? `Program rows: ${count * 3}` : `**shown:** ${count}`,
         );
         expect(text).toContain(`**cap:** ${tool === searchProgramsTool ? 20 : per_page}`);
         if (more) {
@@ -1546,6 +1555,127 @@ describe('Scorecard caller contracts', () => {
   });
 
   describe('school sorting and single-sex flags', () => {
+    it.each([
+      { page: 0, total: 2, count: 1, more: true },
+      { page: 1, total: 2, count: 1, more: false },
+      { page: 2, total: 2, count: 0, more: false },
+      { page: 0, total: 0, count: 0, more: false },
+    ])(
+      'forwards combined school filters for page $page, total $total',
+      async ({ page, total, count, more }) => {
+        const filters = {
+          max_net_price: 0,
+          min_completion_rate: 0,
+          hbcu: false,
+          operating: false,
+          locale: 'city',
+        } as const;
+        serve(count ? [{ ...school(), id: page + 1, 'school.operating': 0 }] : [], {
+          total,
+          page,
+          per_page: 1,
+        });
+        const result = await runToolContract(searchSchoolsTool, { ...filters, page, per_page: 1 });
+        expect(requests).toHaveLength(1);
+        const params = requests[0]!.searchParams;
+        expect(params.get('latest.cost.avg_net_price.overall__range')).toBe('..0');
+        expect(params.get('latest.completion.rate_suppressed.overall__range')).toBe('0..');
+        expect(params.get('school.minority_serving.historically_black')).toBe('0');
+        expect(params.get('school.operating')).toBe('0');
+        expect(params.get('school.locale__range')).toBe('11..13');
+        expect(params.get('page')).toBe(String(page));
+        expect(params.get('fields')?.split(',')).toContain('school.operating');
+        expect(result.structuredContent).toMatchObject({
+          total,
+          page,
+          shown: count,
+          cap: 1,
+          truncated: more,
+          query: filters,
+        });
+        for (const [key, value] of Object.entries(filters))
+          expect(textOf(result)).toContain(`"${key}":${JSON.stringify(value)}`);
+        if (more) expect(textOf(result)).toContain('Request page 1');
+        if (count === 0)
+          expect(textOf(result)).toContain(total ? 'page is exhausted' : 'No schools matched');
+      },
+    );
+
+    it.each([
+      ['city', '11..13'],
+      ['suburb', '21..23'],
+      ['town', '31..33'],
+      ['rural', '41..43'],
+    ] as const)('encodes the %s locale group', async (locale, range) => {
+      serve([]);
+      await runToolContract(searchSchoolsTool, {
+        locale,
+        hbcu: true,
+        operating: true,
+        max_net_price: 15000.5,
+        min_completion_rate: 0.8,
+      });
+      const params = requests[0]!.searchParams;
+      expect(params.get('school.locale__range')).toBe(range);
+      expect(params.get('school.minority_serving.historically_black')).toBe('1');
+      expect(params.get('school.operating')).toBe('1');
+      expect(params.get('latest.cost.avg_net_price.overall__range')).toBe('..15000.5');
+      expect(params.get('latest.completion.rate_suppressed.overall__range')).toBe('0.8..');
+    });
+
+    it('clamps negative net price with an echoed selector and a notice alongside empty recovery', async () => {
+      serve([]);
+      const result = await runToolContract(searchSchoolsTool, { max_net_price: -1 });
+      expect(requests[0]!.searchParams.get('latest.cost.avg_net_price.overall__range')).toBe('..0');
+      expect(result.structuredContent).toMatchObject({
+        query: { max_net_price: 0 },
+        notice: expect.stringMatching(/max_net_price.*0.*No schools matched/),
+      });
+      expect(textOf(result)).toContain('"max_net_price":0');
+      expect(textOf(result)).toContain('No schools matched');
+    });
+
+    it.each([
+      [-1.5, '..0'],
+      [15000.5, '..15000.5'],
+    ])(
+      'forwards program search net price %s as an inclusive ceiling',
+      async (max_net_price, range) => {
+        serve([]);
+        const result = await runToolContract(searchProgramsTool, { max_net_price });
+        expect(result.isError).toBeFalsy();
+        expect(requests).toHaveLength(1);
+        expect(requests[0]!.searchParams.get('latest.cost.avg_net_price.overall__range')).toBe(
+          range,
+        );
+      },
+    );
+
+    it.each([
+      { max_net_price: 'unknown' },
+      { min_completion_rate: 1.01 },
+      { min_completion_rate: -0.01 },
+      { hbcu: 'yes' },
+      { operating: 1 },
+      { locale: 'metro' },
+    ])('rejects invalid school filters without a provider request: %j', async (input) => {
+      serve([]);
+      const result = await runToolContract(searchSchoolsTool, input as never);
+      expect(result.structuredContent).toMatchObject({
+        error: { code: JsonRpcErrorCode.InvalidParams, data: { reason: 'invalid_arguments' } },
+      });
+      expect(textOf(result)).toContain('Invalid arguments');
+      expect(requests).toHaveLength(0);
+    });
+
+    it('keeps default certification out of caller-selected field projections', async () => {
+      serve([{ ...school(), 'school.operating': 1 }]);
+      const result = await runToolContract(getSchoolTool, { id: 236948, fields: 'school.state' });
+      expect(requests[0]!.searchParams.get('fields')?.split(',')).not.toContain('school.operating');
+      const { schools } = result.structuredContent as { schools: unknown[] };
+      expect(schools[0]).not.toHaveProperty('operating');
+      expect(textOf(result)).not.toContain('Operating certification');
+    });
     it.each(['asc', 'desc'])(
       'forwards a supported %s sort and preserves upstream order',
       async (direction) => {

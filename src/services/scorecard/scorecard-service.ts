@@ -15,6 +15,7 @@ import {
 import type { StorageService } from '@cyanheads/mcp-ts-core/storage';
 import { fetchWithTimeout, httpErrorFromResponse, withRetry } from '@cyanheads/mcp-ts-core/utils';
 import { getServerConfig } from '@/config/server-config.js';
+import { BORROWER_REPAYMENT_FIELDS } from '@/data/repayment-context.js';
 import {
   meaningfulText,
   normalizeCip,
@@ -22,7 +23,11 @@ import {
   normalizeSearchOptions,
   normalizeState,
 } from './input-normalization.js';
-import type { ScorecardApiResponse, ScorecardSearchOptions } from './types.js';
+import {
+  SCHOOL_LOCALE_RANGES,
+  type ScorecardApiResponse,
+  type ScorecardSearchOptions,
+} from './types.js';
 
 const BASE_URL = 'https://api.data.gov/ed/collegescorecard/v1/schools';
 
@@ -34,6 +39,7 @@ const SEARCH_DEFAULT_FIELDS = [
   'school.city',
   'school.state',
   'school.ownership',
+  'school.operating',
   'school.degrees_awarded.predominant',
   'latest.student.size',
   'latest.admissions.admission_rate.overall',
@@ -57,6 +63,7 @@ const PROFILE_DEFAULT_FIELDS = [
   'school.zip',
   'school.school_url',
   'school.ownership',
+  'school.operating',
   'school.carnegie_basic',
   'school.locale',
   'school.degrees_awarded.predominant',
@@ -92,6 +99,7 @@ const PROFILE_DEFAULT_FIELDS = [
   'latest.aid.pell_grant_rate',
   'latest.aid.federal_loan_rate',
   'latest.repayment.repayment_cohort.3_year_declining_balance',
+  ...BORROWER_REPAYMENT_FIELDS,
   'latest.completion.rate_suppressed.overall',
   'latest.earnings.6_yrs_after_entry.median',
   'latest.earnings.6_yrs_after_entry.working_not_enrolled.earnings_percentile.25',
@@ -250,7 +258,7 @@ export class ScorecardService {
       for (const key of ['body', 'responseBody', 'code', 'statusText'])
         if (typeof data[key] === 'string') data[key] = this.safeDetail(data[key]);
       const message = data.status
-        ? `Scorecard API returned HTTP ${data.status}.${data.body ? ` ${data.body}` : ''}`
+        ? `Scorecard API returned HTTP ${data.status}.`
         : this.safeDetail(error.message);
       throw new McpError(error.code, message, data);
     });
@@ -295,6 +303,15 @@ export class ScorecardService {
     if (options.sort) params.sort = options.sort;
     if (options.menOnly != null) params['school.men_only'] = options.menOnly ? 1 : 0;
     if (options.womenOnly != null) params['school.women_only'] = options.womenOnly ? 1 : 0;
+    if (options.operating != null) params['school.operating'] = options.operating ? 1 : 0;
+    if (options.hbcu != null)
+      params['school.minority_serving.historically_black'] = options.hbcu ? 1 : 0;
+    if (options.locale != null)
+      params['school.locale__range'] = SCHOOL_LOCALE_RANGES[options.locale];
+    if (options.maxNetPrice != null)
+      params['latest.cost.avg_net_price.overall__range'] = `..${options.maxNetPrice}`;
+    if (options.minCompletionRate != null)
+      params['latest.completion.rate_suppressed.overall__range'] = `${options.minCompletionRate}..`;
     if (options.extraParams) {
       for (const [k, v] of Object.entries(options.extraParams)) {
         params[k] = v;
@@ -452,6 +469,7 @@ export class ScorecardService {
       'school.name',
       'school.carnegie_basic',
       'school.ownership',
+      'school.operating',
       'latest.cost.tuition.in_state',
       'latest.cost.tuition.out_of_state',
       'latest.cost.tuition.program_year',
@@ -470,6 +488,7 @@ export class ScorecardService {
       'latest.cost.net_price.private.by_income_level.110001-plus',
       'latest.aid.median_debt.completers.overall',
       'latest.repayment.repayment_cohort.3_year_declining_balance',
+      ...BORROWER_REPAYMENT_FIELDS,
       'latest.completion.rate_suppressed.overall',
     ].join(',');
 
@@ -560,7 +579,7 @@ export class ScorecardService {
 
     const params: Record<string, string | number | undefined> = {
       id: ids.join(','),
-      fields: topicFields[topic],
+      fields: `${topicFields[topic]},school.operating`,
       per_page: ids.length,
     };
 

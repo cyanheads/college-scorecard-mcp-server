@@ -93,7 +93,7 @@ export const listFieldsTool = tool('scorecard_list_fields', {
 
     const hasUnsortable = results.some((r) => !r.sortable);
     const tip = hasUnsortable
-      ? 'Fields where sortable=false are not indexed by the API — pass them in the fields parameter for retrieval but do not use them in the sort parameter.'
+      ? 'Fields where sortable=false lack API sort support. Pass them in the fields parameter to retrieve their values.'
       : undefined;
 
     return {

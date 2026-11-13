@@ -8,6 +8,34 @@ import { describe, expect, it } from 'vitest';
 import { listFieldsTool } from '@/mcp-server/tools/definitions/list-fields.tool.js';
 
 describe('listFieldsTool', () => {
+  it('reports sort support from the provider sweep and discovers pooled retention', async () => {
+    const supported = await runToolContract(listFieldsTool, { query: 'unique unit id' });
+    expect(supported.structuredContent).toMatchObject({
+      results: expect.arrayContaining([expect.objectContaining({ path: 'id', sortable: true })]),
+    });
+    const bracket = await runToolContract(listFieldsTool, { query: 'by_income_level.0-30000' });
+    expect(bracket.structuredContent).toMatchObject({
+      results: [
+        { path: 'latest.cost.net_price.public.by_income_level.0-30000', sortable: false },
+        { path: 'latest.cost.net_price.private.by_income_level.0-30000', sortable: false },
+      ],
+      tip: expect.stringContaining('sort support'),
+    });
+    const retention = await runToolContract(listFieldsTool, { query: 'retention' });
+    const paths = [
+      'latest.student.retention_rate_suppressed.four_year.full_time_pooled',
+      'latest.student.retention_rate_suppressed.lt_four_year.full_time_pooled',
+    ];
+    expect(retention.structuredContent).toMatchObject({
+      totalMatches: 2,
+      results: paths.map((path) => ({ path, type: 'float', sortable: false })),
+    });
+    const text = retention.content.map((block) => ('text' in block ? block.text : '')).join('\n');
+    for (const path of paths) {
+      const row = text.split(`**${path}**\n`)[1]?.split('\n\n')[0];
+      expect(row).toContain('Type: float | Category: retention | Sortable: No');
+    }
+  });
   it('advertises the verified OPEID6 sort index', async () => {
     const result = await runToolContract(listFieldsTool, { query: 'ope6_id' });
     expect(result.structuredContent).toMatchObject({

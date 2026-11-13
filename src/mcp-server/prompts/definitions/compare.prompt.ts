@@ -27,9 +27,9 @@ export const comparePrompt = prompt('scorecard_compare_prompt', {
       costs:
         'net price by income bracket, median debt, tuition (in-state and out-of-state), and total cost of attendance',
       outcomes:
-        'graduation rates, median earnings at 6 and 10 years, 3-year loan repayment rate, and debt-to-earnings ratio',
+        'graduation rates, median earnings at 6 and 10 years, debt-to-earnings ratio, and repayment progress (the discontinued 3-year declining-balance measure from the 2016–17 file, for FY2013–FY2014 repayment-entry cohorts measured in FY2016–FY2017)',
       programs:
-        'program-level earnings 1 year after the highest credential, cumulative Stafford/Grad PLUS debt, and IPEDS awards in the two pooled debt-cohort years',
+        'one- and four-year completion-based earnings medians and their working, not-enrolled population counts, cumulative Stafford/Grad PLUS debt, and IPEDS awards in the two pooled debt-cohort years',
     };
     const guide = focusGuide[args.focus] ?? args.focus;
 
@@ -49,7 +49,7 @@ export const comparePrompt = prompt('scorecard_compare_prompt', {
               ? [
                   '2. Use scorecard_lookup_cip to resolve the relevant four-digit CIP codes.',
                   '3. Use scorecard_get_programs for each school ID and CIP code; compare matching credentials across schools.',
-                  '4. Compare returned earnings, cumulative debt, and IPEDS awards. Awards describe the two pooled debt-cohort years, not enrollment; do not invent award-year dates or values for missing metrics.',
+                  '4. Compare completion-based earnings for matching horizons and use the reported cohort, measurement, and dollar years. Keep legacy highest-credential earnings separate and use each series only where it is available. Compare cumulative debt and campus IPEDS awards for the reported debt-cohort years.',
                   '5. Use scorecard_get_school for institutional context when needed.',
                 ]
               : [
@@ -58,7 +58,7 @@ export const comparePrompt = prompt('scorecard_compare_prompt', {
                   `4. Use scorecard_value_analysis for ROI metrics (debt-to-earnings ratio, net price by income bracket).`,
                 ]),
             '',
-            `Present a clear comparison table with ranks within this set, followed by a brief interpretation of the most meaningful differences.`,
+            'Present a clear comparison table. Preserve any returned ranks and leave unranked rows unranked. Follow with a brief interpretation of the most meaningful differences.',
           ].join('\n'),
         },
       },

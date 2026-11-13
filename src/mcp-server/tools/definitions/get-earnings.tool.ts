@@ -65,7 +65,7 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
       )
       .optional()
       .describe(
-        'Optional API data-file start years from 1996–2025 (e.g. [2003, 2011, 2020]); valid files may lack observations. Omit or pass [] for snapshot only.',
+        'Optional API data-file start years from 1996–2025 (e.g. [2003, 2011, 2020]); valid files may lack observations. Repeated years are reported once, in order of first occurrence. Omit or pass [] for snapshot only.',
       ),
   }),
 
@@ -150,7 +150,7 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.Conflict,
       when: 'The provider reported a request conflict.',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -158,14 +158,14 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check field names with scorecard_list_fields or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {
@@ -233,10 +233,11 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
   ],
 
   async handler(input, ctx) {
-    ctx.log.info('Fetching school earnings', { id: input.id, years: input.years });
+    const years = [...new Set(input.years)];
+    ctx.log.info('Fetching school earnings', { id: input.id, years });
     const service = getScorecardService();
 
-    const response = await service.getSchoolEarnings(input.id, input.years ?? [], ctx);
+    const response = await service.getSchoolEarnings(input.id, years, ctx);
 
     const r = response.results[0];
     if (!r) {
@@ -262,8 +263,8 @@ export const getEarningsTool = tool('scorecard_get_earnings', {
 
     // Build trend rows for requested years
     const trend =
-      input.years && input.years.length > 0
-        ? input.years.map((year) => {
+      years.length > 0
+        ? years.map((year) => {
             const six = readMetric(r[`${year}.earnings.6_yrs_after_entry.median`]);
             const ten = readMetric(r[`${year}.earnings.10_yrs_after_entry.median`]);
             return {

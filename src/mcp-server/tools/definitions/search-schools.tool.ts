@@ -9,13 +9,18 @@ import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
 import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
 import { degreeLevelLabel, ownershipLabel } from '@/mcp-server/format-helpers.js';
 import {
+  formatOperatingCertification,
   InstitutionContextSchema,
   InstitutionCostsSchema,
   institutionContext,
   institutionCosts,
+  OperatingCertificationSchema,
+  operatingCertification,
+  operatingCertificationNotice,
 } from '@/mcp-server/institution-context.js';
 import { normalizeSearchOptions } from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
+import { SCHOOL_LOCALE_RANGES } from '@/services/scorecard/types.js';
 
 export const searchSchoolsTool = tool('scorecard_search_schools', {
   title: 'Search Schools',
@@ -94,7 +99,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       .string()
       .optional()
       .describe(
-        'Upstream sort expression on an indexed field, e.g. "latest.cost.avg_net_price.overall:asc" or ":desc" for reverse order. Use scorecard_list_fields for sort support; omission keeps API ordering.',
+        'Upstream sort expression such as "latest.cost.avg_net_price.overall:asc" or "latest.cost.avg_net_price.overall:desc". Use scorecard_list_fields to find fields with API sort support. Omission keeps provider ordering.',
       ),
     men_only: z
       .boolean()
@@ -108,6 +113,33 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       .describe(
         'True selects women-only institutions; false selects institutions explicitly marked not women-only. Omit to include unknown values.',
       ),
+    operating: OperatingCertificationSchema.describe(
+      'True selects currently certified institutions. False selects institutions reported as lacking current operating certification. Omit to include all statuses.',
+    ),
+    max_net_price: z
+      .number()
+      .optional()
+      .describe(
+        'Inclusive ceiling on reported average net price in dollars. Negative values use zero. Excludes schools with unreported net price.',
+      ),
+    min_completion_rate: z
+      .number()
+      .min(0)
+      .max(1)
+      .optional()
+      .describe(
+        'Inclusive floor on reported overall completion rate as a decimal (0–1). Excludes schools with unreported rates.',
+      ),
+    hbcu: z
+      .boolean()
+      .optional()
+      .describe(
+        'True selects historically Black colleges and universities. False selects institutions explicitly marked as non-HBCU. Omit to include unknown values.',
+      ),
+    locale: z
+      .enum(Object.keys(SCHOOL_LOCALE_RANGES) as (keyof typeof SCHOOL_LOCALE_RANGES)[])
+      .optional()
+      .describe('Provider locale group. Excludes schools with unreported locale.'),
     per_page: z.number().int().min(1).max(100).default(20).describe('Results per page (max 100).'),
     page: z.number().int().min(0).default(0).describe('Zero-indexed page number for pagination.'),
   }),
@@ -121,6 +153,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
         z
           .object({
             ...InstitutionContextSchema.shape,
+            operating: OperatingCertificationSchema,
             ...InstitutionCostsSchema.shape,
             id: z.number().describe('Unit ID — use for scorecard_get_school lookups.'),
             name: z.string().describe('Institution name.'),
@@ -166,7 +199,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       .string()
       .optional()
       .describe(
-        'Recovery hint when results are empty — echoes applied filters and suggests how to broaden.',
+        'Filter normalization, operating certification, pagination, or empty-result guidance.',
       ),
   },
   enrichmentTrailer: {
@@ -178,7 +211,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.Conflict,
       when: 'The provider reported a request conflict.',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -186,14 +219,14 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check ZIP and distance filters, field names with scorecard_list_fields, or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {
@@ -281,6 +314,11 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       ...(input.sort && { sort: input.sort }),
       ...(input.men_only != null && { menOnly: input.men_only }),
       ...(input.women_only != null && { womenOnly: input.women_only }),
+      ...(input.operating != null && { operating: input.operating }),
+      ...(input.hbcu != null && { hbcu: input.hbcu }),
+      ...(input.locale != null && { locale: input.locale }),
+      ...(input.max_net_price != null && { maxNetPrice: input.max_net_price }),
+      ...(input.min_completion_rate != null && { minCompletionRate: input.min_completion_rate }),
       perPage: input.per_page,
       page: input.page,
     });
@@ -302,6 +340,11 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
           sort: options.sort,
           men_only: options.menOnly,
           women_only: options.womenOnly,
+          operating: options.operating,
+          hbcu: options.hbcu,
+          locale: options.locale,
+          max_net_price: options.maxNetPrice,
+          min_completion_rate: options.minCompletionRate,
           page: options.page,
           per_page: options.perPage,
         }).filter(([, value]) => value !== undefined),
@@ -311,6 +354,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
 
     const schools = response.results.map((r) => ({
       ...institutionContext(r),
+      ...operatingCertification(r),
       ...institutionCosts(r),
       id: r.id ?? 0,
       name: r['school.name'] ?? 'Unknown',
@@ -343,17 +387,23 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
     const truncated = (page + 1) * per_page < total;
     ctx.enrich.total(total);
     ctx.enrich({ truncated, shown: schools.length, cap: per_page });
+    const notices: string[] = [];
+    if (input.max_net_price != null && input.max_net_price < 0)
+      notices.push('max_net_price was negative and was normalized to 0.');
+    const certificationNotice = operatingCertificationNotice(schools);
+    if (certificationNotice) notices.push(certificationNotice);
     if (schools.length === 0) {
-      ctx.enrich.notice(
+      notices.push(
         total > 0
           ? `This school page is exhausted. Valid page range: 0–${Math.ceil(total / per_page) - 1}.`
-          : 'No schools matched the applied filters. Try removing state, size, or acceptance rate filters.',
+          : 'No schools matched the applied filters. Try removing a selector or widening a range.',
       );
     } else if (truncated) {
-      ctx.enrich.notice(
+      notices.push(
         `More schools match the filters. Request page ${page + 1} or raise per_page (max 100) for more.`,
       );
     }
+    if (notices.length) ctx.enrich.notice(notices.join(' '));
 
     ctx.log.info('School search complete', {
       total: response.metadata.total,
@@ -375,6 +425,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
     ];
     for (const s of result.schools) {
       lines.push(`\n### School ${s.id}\n${escapeMarkdownInline(s.name)}`);
+      if (s.operating != null) lines.push(formatOperatingCertification(s.operating));
       if (s.ope6_id != null) lines.push(`OPEID6: ${escapeMarkdownInline(s.ope6_id)}`);
       if (s.metric_scope) lines.push(`Metric scope: ${JSON.stringify(s.metric_scope)}`);
       if (s.effective_tuition != null)

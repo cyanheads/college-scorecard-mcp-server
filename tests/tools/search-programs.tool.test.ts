@@ -39,6 +39,31 @@ const makeResponse = (records = [makeProgramRecord()]) => ({
 });
 
 describe('searchProgramsTool', () => {
+  it('clamps negative dollar bounds before forwarding, echoing and filtering', async () => {
+    const row = (code: string, median: number) => ({
+      code,
+      debt: { staff_grad_plus: { all: { all_inst: { median } } } },
+    });
+    mockSearchPrograms.mockResolvedValue(
+      makeResponse([
+        makeProgramRecord({ 'latest.programs.cip_4_digit': [row('1107', 0), row('5138', 0.1)] }),
+      ]),
+    );
+    const result = await runToolContract(searchProgramsTool, { max_net_price: -1.5, max_debt: -2 });
+    expect(mockSearchPrograms.mock.calls[0]?.[0]).toMatchObject({ maxNetPrice: 0, maxDebt: 0 });
+    expect(result.structuredContent).toMatchObject({
+      programs: [{ program_code: '1107', median_debt: 0 }],
+      query: { max_net_price: 0, max_debt: 0 },
+      notice: expect.stringContaining(
+        'max_net_price normalized to $0 (requested -1.5). max_debt normalized to $0 (requested -2).',
+      ),
+    });
+    const text = result.content.map((block) => ('text' in block ? block.text : '')).join('\n');
+    expect(text).toContain('max_net_price normalized to $0 (requested -1.5).');
+    expect(text).toContain('max_debt normalized to $0 (requested -2).');
+    expect(text).toContain('"max_net_price":0');
+    expect(text).toContain('"max_debt":0');
+  });
   it.each([5, 99, 123])(
     'echoes credential selector %i on a successful empty page',
     async (credential_level) => {

@@ -94,7 +94,7 @@ export function normalizeSearchOptions(options: ScorecardSearchOptions): Scoreca
     const match = /^([\w.-]+)(?::(asc|desc))?$/i.exec(sort);
     if (!match)
       throw validationError(
-        'Use one indexed field with optional :asc or :desc; multiple sort fields are unsupported.',
+        'Use one field with API sort support and optional :asc or :desc. Check scorecard_list_fields for supported sort paths.',
         { reason: 'api_validation' },
       );
     sort = `${match[1]}${match[2] ? `:${match[2].toLowerCase()}` : ''}`;
@@ -111,6 +111,7 @@ export function normalizeSearchOptions(options: ScorecardSearchOptions): Scoreca
     sort,
     sizeRange: range(options.sizeRange),
     acceptanceRateRange: range(options.acceptanceRateRange),
+    ...(options.maxNetPrice != null && { maxNetPrice: Math.max(0, options.maxNetPrice) }),
     perPage: options.perPage ?? 20,
     page: options.page ?? 0,
   };

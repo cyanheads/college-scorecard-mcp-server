@@ -6,7 +6,11 @@
 
 import { resource, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { institutionContext, institutionCosts } from '@/mcp-server/institution-context.js';
+import {
+  institutionContext,
+  institutionCosts,
+  operatingCertification,
+} from '@/mcp-server/institution-context.js';
 import { EXAMPLE_SCHOOLS } from '@/mcp-server/resources/definitions/example-schools.js';
 import { SchoolIdStringSchema } from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
@@ -15,7 +19,7 @@ export const schoolResource = resource('scorecard://school/{id}', {
   name: 'scorecard-school',
   title: 'School Profile',
   description:
-    'Institutional profile by unit ID — injectable context for school-specific conversations. Returns core identity, cost, admissions, and outcomes data.',
+    'Institutional profile by unit ID. Returns core identity, operating certification when reported, cost, admissions, and outcomes data.',
   mimeType: 'application/json',
   params: z.object({
     id: SchoolIdStringSchema,
@@ -25,7 +29,7 @@ export const schoolResource = resource('scorecard://school/{id}', {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider reported a conflict (HTTP 409).',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -46,14 +50,14 @@ export const schoolResource = resource('scorecard://school/{id}', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check field names with scorecard_list_fields or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {
@@ -120,6 +124,7 @@ export const schoolResource = resource('scorecard://school/{id}', {
 
     return {
       ...institutionContext(record),
+      ...operatingCertification(record),
       ...institutionCosts(record),
       id: record.id,
       name: record['school.name'],

@@ -4,6 +4,14 @@
  * @module data/field-catalog
  */
 
+import {
+  BORROWER_REPAYMENT_SERIES,
+  BORROWER_REPAYMENT_STATUSES,
+  borrowerRepaymentField,
+  describeLegacyRepayment,
+  LEGACY_REPAYMENT_CONTEXT,
+} from './repayment-context.js';
+
 export interface FieldEntry {
   /** Thematic category */
   category: string;
@@ -32,7 +40,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     path: 'id',
     description: 'Unique unit ID (use for ID-based lookups)',
     type: 'integer',
-    sortable: false,
+    sortable: true,
     category: 'identity',
   },
   {
@@ -118,7 +126,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     path: 'school.minority_serving.historically_black',
     description: 'Historically Black College or University flag',
     type: 'integer',
-    sortable: false,
+    sortable: true,
     category: 'identity',
   },
   {
@@ -170,70 +178,70 @@ export const FIELD_CATALOG: FieldEntry[] = [
     path: 'latest.cost.net_price.public.by_income_level.0-30000',
     description: 'Net price for family income $0–$30,000 (public institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.public.by_income_level.30001-48000',
     description: 'Net price for family income $30,001–$48,000 (public institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.public.by_income_level.48001-75000',
     description: 'Net price for family income $48,001–$75,000 (public institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.public.by_income_level.75001-110000',
     description: 'Net price for family income $75,001–$110,000 (public institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.public.by_income_level.110001-plus',
     description: 'Net price for family income $110,001+ (public institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.private.by_income_level.0-30000',
     description: 'Net price for family income $0–$30,000 (private institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.private.by_income_level.30001-48000',
     description: 'Net price for family income $30,001–$48,000 (private institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.private.by_income_level.48001-75000',
     description: 'Net price for family income $48,001–$75,000 (private institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.private.by_income_level.75001-110000',
     description: 'Net price for family income $75,001–$110,000 (private institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
     path: 'latest.cost.net_price.private.by_income_level.110001-plus',
     description: 'Net price for family income $110,001+ (private institutions)',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'cost',
   },
   {
@@ -368,35 +376,56 @@ export const FIELD_CATALOG: FieldEntry[] = [
   },
   {
     path: 'latest.repayment.repayment_cohort.3_year_declining_balance',
-    description:
-      'Share of borrowers paying down principal (declining loan balance) 3 years after entering repayment (0–1)',
+    description: `Share of borrowers paying down principal (declining loan balance) 3 years after entering repayment (0–1), ${describeLegacyRepayment(LEGACY_REPAYMENT_CONTEXT[3])}`,
     type: 'float',
     sortable: false,
     category: 'aid',
   },
   {
     path: 'latest.repayment.repayment_cohort.1_year_declining_balance',
-    description:
-      'Share of borrowers paying down principal (declining loan balance) 1 year after entering repayment (0–1)',
+    description: `Share of borrowers paying down principal (declining loan balance) 1 year after entering repayment (0–1), ${describeLegacyRepayment(LEGACY_REPAYMENT_CONTEXT[1])}`,
     type: 'float',
     sortable: false,
     category: 'aid',
   },
   {
     path: 'latest.repayment.repayment_cohort.5_year_declining_balance',
-    description:
-      'Share of borrowers paying down principal (declining loan balance) 5 years after entering repayment (0–1)',
+    description: `Share of borrowers paying down principal (declining loan balance) 5 years after entering repayment (0–1), ${describeLegacyRepayment(LEGACY_REPAYMENT_CONTEXT[5])}`,
     type: 'float',
     sortable: false,
     category: 'aid',
   },
+
+  ...BORROWER_REPAYMENT_SERIES.flatMap((series): FieldEntry[] => {
+    const { horizon_years, data_file, repayment_entry_cohorts, measurement_period } = series;
+    const countPath = borrowerRepaymentField(horizon_years, 'count');
+    const vintage = `OPEID6 pooled; ${data_file} file, repayment-entry cohorts ${repayment_entry_cohorts.join(', ')}, measured ${measurement_period.join(', ')}`;
+    return [
+      {
+        path: countPath,
+        description: `Cohort count of undergraduate federal Direct Loan borrowers for the ${horizon_years}-year statuses (${vintage})`,
+        type: 'integer',
+        sortable: false,
+        category: 'aid',
+      },
+      ...Object.values(BORROWER_REPAYMENT_STATUSES).map(
+        ({ label, suffix }): FieldEntry => ({
+          path: borrowerRepaymentField(horizon_years, suffix),
+          description: `Share of undergraduate federal Direct Loan borrowers assigned ${label} at ${horizon_years} years, published as a decimal or bin. Denominator is ${countPath} (${vintage})`,
+          type: 'string',
+          sortable: false,
+          category: 'aid',
+        }),
+      ),
+    ];
+  }),
 
   // Completion / Outcomes
   {
     path: 'latest.completion.rate_suppressed.overall',
     description: 'Completion rate at 150% normal time (overall)',
     type: 'float',
-    sortable: false,
+    sortable: true,
     category: 'completion',
   },
   {
@@ -410,8 +439,26 @@ export const FIELD_CATALOG: FieldEntry[] = [
     path: 'latest.completion.consumer_rate',
     description: 'Consumer-friendly completion rate',
     type: 'float',
-    sortable: false,
+    sortable: true,
     category: 'completion',
+  },
+
+  // Retention
+  {
+    path: 'latest.student.retention_rate_suppressed.four_year.full_time_pooled',
+    description:
+      'Pooled share of first-time, full-time bachelor’s or equivalent degree-seeking undergraduates who return the next fall at four-year institutions',
+    type: 'float',
+    sortable: false,
+    category: 'retention',
+  },
+  {
+    path: 'latest.student.retention_rate_suppressed.lt_four_year.full_time_pooled',
+    description:
+      'Pooled share of first-time, full-time degree- or certificate-seeking undergraduates who return the next fall at less-than-four-year institutions',
+    type: 'float',
+    sortable: false,
+    category: 'retention',
   },
 
   // Earnings — Institution Level
@@ -562,7 +609,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     description:
       'Median earnings of graduates working and not enrolled 4 years after completion, pooled by OPEID6, CIP, and credential',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'programs',
   },
   {
@@ -585,7 +632,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     path: 'latest.programs.cip_4_digit.code',
     description: 'CIP 4-digit program code (e.g. "11.07")',
     type: 'string',
-    sortable: true,
+    sortable: false,
     category: 'programs',
   },
   {
@@ -616,7 +663,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     description:
       'Median cumulative Stafford/Grad PLUS borrowing among completers across institutions at the same academic level',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'programs',
   },
   {
@@ -624,7 +671,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     description:
       'IPEDS awards in year 1 of the pooled debt cohort; not enrollment or unique students',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'programs',
   },
   {
@@ -632,7 +679,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     description:
       'IPEDS awards in year 2 of the pooled debt cohort; not enrollment or unique students',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'programs',
   },
   {
@@ -640,7 +687,7 @@ export const FIELD_CATALOG: FieldEntry[] = [
     description:
       'Credential level: 1=undergraduate certificate, 2=associate, 3=bachelor, 4=post-baccalaureate certificate, 5=master, 6=doctoral, 7=first professional, 8=graduate/professional certificate, 99=non-credential',
     type: 'integer',
-    sortable: true,
+    sortable: false,
     category: 'programs',
   },
 ];

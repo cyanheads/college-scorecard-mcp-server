@@ -53,6 +53,22 @@ it('characterizes legacy highest-credential values and identity', async () => {
     programs: [{ code: '1107', earnings_1yr_median: 101710, earnings_count: 236 }],
   });
 });
+it.each([getProgramsTool, searchProgramsTool])(
+  'rejects six-digit program selectors before I/O',
+  async (tool) => {
+    const result = await runToolContract(tool, {
+      ...(tool === getProgramsTool && { id: 236948 }),
+      cip_code: '11.0701',
+    });
+    expect(result.structuredContent).toMatchObject({
+      error: { data: { reason: 'api_validation', recovery: { hint: expect.any(String) } } },
+    });
+    expect(result.content.map((b) => ('text' in b ? b.text : '')).join('\n')).toContain(
+      'Use a four-digit CIP code',
+    );
+    expect(fetchPrograms).not.toHaveBeenCalled();
+  },
+);
 it('pages after current earnings ranking and preserves distinct populations', async () => {
   const result = await runToolContract(getProgramsTool, { id: 236948, limit: 1 });
   expect(result.structuredContent).toMatchObject({
@@ -70,7 +86,12 @@ it('pages after current earnings ranking and preserves distinct populations', as
       },
     ],
   });
-  expect(result.content.map((b) => ('text' in b ? b.text : '')).join('\n')).toContain('128218');
+  const text = result.content.map((b) => ('text' in b ? b.text : '')).join('\n');
+  expect(text).toContain('Completion-based 1-year earnings: $128,218');
+  expect(text).toContain('Completion-based 4-year earnings: $175,616');
+  expect(text).toContain('Legacy highest-credential 1-year earnings: $101,710');
+  expect(text).toContain('OPEID6: 003798');
+  expect(text).not.toContain('```json');
 });
 it('drains this school page before continuing to another school page', async () => {
   const first = await runToolContract(searchProgramsTool, { limit: 2 });
@@ -82,6 +103,14 @@ it('drains this school page before continuing to another school page', async () 
   });
   const last = await runToolContract(searchProgramsTool, { limit: 2, offset: 2 });
   expect(last.structuredContent).toMatchObject({ shown: 1, next: { page: 1, offset: 0 } });
+  const firstText = first.content.map((b) => ('text' in b ? b.text : '')).join('\n');
+  expect(firstText).toContain('Completion-based 1-year earnings: $0');
+  expect(firstText).not.toContain('```json');
+  const lastText = last.content.map((b) => ('text' in b ? b.text : '')).join('\n');
+  expect(lastText).toContain('Continuation: page 1, offset 0');
+  expect(lastText).toContain(
+    'Completion-based 1-year earnings: Not available (privacy_suppressed)',
+  );
 });
 it('concatenates nested school/credential pages in a stable sequence including ties and unavailable values', async () => {
   fetchPrograms.mockResolvedValue({

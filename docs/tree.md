@@ -1,6 +1,6 @@
 # college-scorecard-mcp-server - Directory Structure
 
-Generated on: 2026-11-03 08:29:35
+Generated on: 2026-11-13 16:23:04
 
 ```text
 college-scorecard-mcp-server/
@@ -152,7 +152,8 @@ college-scorecard-mcp-server/
 │   │   ├── cip-codes.ts
 │   │   ├── earnings-context.ts
 │   │   ├── field-catalog.ts
-│   │   └── program-provenance.ts
+│   │   ├── program-provenance.ts
+│   │   └── repayment-context.ts
 │   ├── mcp-server/
 │   │   ├── prompts/
 │   │   │   └── definitions/
@@ -175,7 +176,9 @@ college-scorecard-mcp-server/
 │   │   │       ├── search-schools.tool.ts
 │   │   │       └── value-analysis.tool.ts
 │   │   ├── format-helpers.ts
-│   │   └── institution-context.ts
+│   │   ├── institution-context.ts
+│   │   ├── program-format.ts
+│   │   └── repayment.ts
 │   ├── services/
 │   │   └── scorecard/
 │   │       ├── input-normalization.ts
@@ -199,17 +202,20 @@ college-scorecard-mcp-server/
 │   │   └── check-earnings-provenance.test.ts
 │   ├── services/
 │   │   ├── program-outcomes.test.ts
+│   │   ├── repayment-contract.test.ts
 │   │   ├── scorecard-contract.test.ts
 │   │   ├── scorecard-service.test.ts
 │   │   └── value-analysis-contract.test.ts
 │   └── tools/
 │       ├── compare-schools.tool.test.ts
+│       ├── comparison-ranking.test.ts
 │       ├── get-earnings.tool.test.ts
 │       ├── get-programs.tool.test.ts
 │       ├── get-school.tool.test.ts
 │       ├── institution-updates.test.ts
 │       ├── list-fields.tool.test.ts
 │       ├── lookup-cip.tool.test.ts
+│       ├── program-format.test.ts
 │       ├── program-pages.test.ts
 │       ├── search-programs.tool.test.ts
 │       ├── search-schools.tool.test.ts

@@ -6,7 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { escapeMarkdownInline, markdown } from '@cyanheads/mcp-ts-core/utils';
-import { searchCipCodes } from '@/data/cip-codes.js';
+import { CIP_CODES, searchCipCodes } from '@/data/cip-codes.js';
 
 export const lookupCipTool = tool('scorecard_lookup_cip', {
   title: 'Lookup CIP Code',
@@ -20,7 +20,7 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
       .trim()
       .min(1)
       .describe(
-        'Search term — program name keyword (e.g. "computer science", "nursing", "business"). Matches against CIP titles and family names.',
+        'Program name keyword (e.g. "computer science", "nursing", "business") or CIP code. Dotted and undotted six-digit codes resolve to their four-digit group.',
       ),
     limit: z
       .number()
@@ -61,7 +61,10 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
   }),
 
   enrichment: {
-    notice: z.string().optional().describe('No-match guidance.'),
+    notice: z
+      .string()
+      .optional()
+      .describe('Grouping notice and guidance for empty or exhausted results.'),
     guidance: z.string().optional().describe('Concrete narrowing guidance when matches remain.'),
     queryContext: z
       .object({
@@ -81,14 +84,21 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
   },
 
   handler(input, ctx) {
-    input = {
-      ...input,
-      query: /^\d{4}$/.test(input.query)
-        ? `${input.query.slice(0, 2)}.${input.query.slice(2)}`
-        : input.query,
-    };
+    const requested = input.query;
+    const specialization = /^(\d{2})\.?(\d{2})\d{2}$/.exec(requested);
+    const query = specialization
+      ? `${specialization[1]}.${specialization[2]}`
+      : /^\d{4}$/.test(requested)
+        ? `${requested.slice(0, 2)}.${requested.slice(2)}`
+        : requested;
+    input = { ...input, query };
+    const notices: string[] = [];
+    if (specialization)
+      notices.push(`CIP code ${requested} was grouped under the four-digit code ${query}.`);
     ctx.log.info('Searching CIP codes', { query: input.query });
-    const matches = searchCipCodes(input.query, Number.POSITIVE_INFINITY);
+    const matches = specialization
+      ? CIP_CODES.filter((entry) => entry.code === query)
+      : searchCipCodes(query, Number.POSITIVE_INFINITY);
     const cap = Math.min(input.limit, 50);
     const results = matches.slice(input.offset, input.offset + cap);
     const nextOffset =
@@ -99,8 +109,10 @@ export const lookupCipTool = tool('scorecard_lookup_cip', {
       cap,
       queryContext: { query: input.query, limit: cap, offset: input.offset },
     });
-    if (!matches.length)
-      ctx.enrich.notice('No CIP codes matched. Try computer, health, or business.');
+    if (!matches.length) notices.push('No CIP codes matched. Try computer, health, or business.');
+    else if (!results.length)
+      notices.push('This CIP offset is exhausted; use offset 0 to restart.');
+    if (notices.length > 0) ctx.enrich.notice(notices.join(' '));
     if (nextOffset !== undefined) {
       ctx.enrich.truncated({
         shown: results.length,

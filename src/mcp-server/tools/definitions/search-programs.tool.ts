@@ -6,7 +6,7 @@
 
 import { tool, z } from '@cyanheads/mcp-ts-core';
 import { JsonRpcErrorCode } from '@cyanheads/mcp-ts-core/errors';
-import { escapeMarkdownInline, markdown, markdownLink } from '@cyanheads/mcp-ts-core/utils';
+import { markdown } from '@cyanheads/mcp-ts-core/utils';
 import {
   PROGRAM_METRIC_SCOPE,
   PROGRAM_PROVENANCE,
@@ -14,6 +14,12 @@ import {
   ProgramProvenanceSchema,
 } from '@/data/program-provenance.js';
 import { ownershipLabel } from '@/mcp-server/format-helpers.js';
+import {
+  programMetricLines,
+  programNumber,
+  programProvenanceLines,
+  programText,
+} from '@/mcp-server/program-format.js';
 import {
   meaningfulText,
   normalizeCip,
@@ -136,7 +142,10 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       .max(3)
       .optional()
       .describe('Restrict to school type: 1=public, 2=private nonprofit, 3=for-profit.'),
-    max_net_price: z.number().optional().describe('Maximum average net price at the school.'),
+    max_net_price: z
+      .number()
+      .optional()
+      .describe('Maximum average net price at the school; negative values normalize to $0.'),
     min_earnings: z
       .number()
       .optional()
@@ -147,7 +156,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       .number()
       .optional()
       .describe(
-        'Maximum median cumulative Stafford/Grad PLUS debt across institutions at the same academic level, inclusive; excludes unavailable debt.',
+        'Maximum median cumulative Stafford/Grad PLUS debt across institutions at the same academic level, inclusive; excludes unavailable debt. Negative values normalize to $0.',
       ),
     per_page: z
       .number()
@@ -233,7 +242,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       reason: 'api_conflict',
       code: JsonRpcErrorCode.Conflict,
       when: 'The provider reported a request conflict.',
-      recovery: 'Review the provider detail and correct conflicting selectors before retrying.',
+      recovery: 'Correct conflicting selectors in the request before retrying.',
       thrownBy: 'service',
     },
     {
@@ -241,14 +250,14 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       code: JsonRpcErrorCode.InvalidParams,
       when: 'Provider rejected a query parameter.',
       recovery:
-        'Correct the reported parameter using scorecard_list_fields or scorecard_lookup_cip before retrying.',
+        'Check field names with scorecard_list_fields or program codes with scorecard_lookup_cip before retrying.',
       thrownBy: 'service',
     },
     {
       reason: 'api_validation',
       code: JsonRpcErrorCode.ValidationError,
       when: 'A meaningful selector or provider value is invalid.',
-      recovery: 'Correct the reported selector or required ID before retrying the request.',
+      recovery: 'Check selectors and required IDs before retrying the request.',
       thrownBy: 'service',
     },
     {
@@ -311,6 +320,12 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
 
   async handler(input, ctx) {
     const notices: string[] = [];
+    const normalizeBound = (key: 'max_net_price' | 'max_debt') => {
+      const requested = input[key];
+      if (requested == null || requested >= 0) return requested;
+      notices.push(`${key} normalized to $0 (requested ${requested}).`);
+      return 0;
+    };
     const requestedLimit = input.limit;
     input = {
       ...input,
@@ -318,6 +333,8 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       cip_code: normalizeCip(input.cip_code),
       state: normalizeState(input.state),
       program_name: meaningfulText(input.program_name),
+      max_net_price: normalizeBound('max_net_price'),
+      max_debt: normalizeBound('max_debt'),
     };
     if (requestedLimit > 100) notices.push('Program limit normalized to 100 rows.');
     ctx.enrich({
@@ -460,41 +477,30 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
   format: (result) => {
     const lines = [
       `## Program Search Results`,
-      `**Schools Matched:** ${result.total} | **Programs:** ${result.total_programs} | **Suppressed:** ${result.suppressed_count} | **Unavailable:** ${result.unavailable_count}`,
+      `**Schools Matched:** ${result.total} | **Programs:** ${result.total_programs} | **Legacy earnings suppressed:** ${result.suppressed_count} | **Legacy earnings unavailable:** ${result.unavailable_count}`,
       `**Page:** ${result.page} | **Per Page:** ${result.per_page}`,
     ];
     for (const p of result.programs) {
       lines.push(
-        `\n**${escapeMarkdownInline(p.program_code)}** — ${escapeMarkdownInline(p.program_title ?? 'Unknown')}`,
+        `\n**${programText(p.program_code)}** — ${programText(p.program_title ?? 'Unknown')}`,
       );
+      lines.push(...programMetricLines(p));
       if (p.credential_level != null || p.credential_title != null)
         lines.push(
-          `Credential: ${escapeMarkdownInline(p.credential_title ?? 'Title not reported')}${p.credential_level != null ? ` (level ${p.credential_level})` : ''}`,
+          `- Credential: ${programText(p.credential_title ?? 'Title not reported')}${p.credential_level != null ? ` (level ${p.credential_level})` : ''}`,
         );
       lines.push(
-        `School: ${escapeMarkdownInline(p.school_name)} (ID: ${p.school_id}) | ${escapeMarkdownInline(p.school_ownership)}${p.school_state ? ` | ${escapeMarkdownInline(p.school_state)}` : ''}`,
+        `- School: ${programText(p.school_name)} (ID: ${p.school_id}) | ${programText(p.school_ownership)}${p.school_state != null ? ` | ${programText(p.school_state)}` : ''}`,
+        `- OPEID6: ${p.ope6_id == null ? 'null' : programText(p.ope6_id)}`,
       );
       if (p.net_price_overall != null)
-        lines.push(`Net Price: $${p.net_price_overall.toLocaleString()}`);
-      lines.push(
-        `Legacy 1-Year Earnings after Highest Credential (median): ${p.earnings_1yr_median != null ? `$${p.earnings_1yr_median.toLocaleString()}` : 'Not available'} | Availability: ${p.earnings_availability} | Suppressed: ${p.suppressed}`,
-      );
-      if (p.median_debt != null)
-        lines.push(
-          `Median Cumulative Stafford/Grad PLUS Debt (all institutions, same academic level): $${p.median_debt.toLocaleString()}`,
-        );
-      if (p.ipeds_awards_year1 != null)
-        lines.push(`IPEDS Awards (debt cohort year 1): ${p.ipeds_awards_year1.toLocaleString()}`);
-      if (p.ipeds_awards_year2 != null)
-        lines.push(`IPEDS Awards (debt cohort year 2): ${p.ipeds_awards_year2.toLocaleString()}`);
+        lines.push(`- Net price: $${programNumber(p.net_price_overall)}`);
     }
     lines.push(
-      `Program rows: ${result.shown} | Offset: ${result.offset} | Limit: ${result.limit} | Next offset: ${result.nextOffset}`,
+      `\nProgram rows: ${result.shown} | Offset: ${result.offset} | Limit: ${result.limit} | Next offset: ${result.nextOffset}`,
+      `Continuation: ${result.next == null ? 'null' : `page ${result.next.page}, offset ${result.next.offset}`}`,
+      ...programProvenanceLines(result.provenance, result.metric_scope),
     );
-    lines.push(
-      `Earnings order and min_earnings use completion_1yr_median; no legacy fallback. Provenance: ${markdownLink('College Scorecard data dictionary', result.provenance.source)}`,
-    );
-    lines.push(markdown().codeBlock(JSON.stringify(result), 'json').build());
     return [{ type: 'text', text: lines.join('\n') }];
   },
 });

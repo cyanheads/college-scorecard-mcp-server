@@ -4,7 +4,7 @@ description: Use scorecard_* tools for college shortlists, program comparisons, 
 license: Apache-2.0
 metadata:
   author: "cyanheads"
-  version: "1.0"
+  version: "1.1"
 ---
 
 ## Scope
@@ -20,11 +20,11 @@ Resolve a discipline with scorecard_lookup_cip, then select the canonical four-d
 ## Gates
 
 1. **Establish coverage before claiming absence or a leader.** Follow returned continuation with the same selectors. Program search orders rows within a fetched school page, not across every matching institution. School totals are not program totals, and an empty page after local filtering does not establish that no programs match elsewhere.
-2. **Match earnings populations and vintages.** Institution earnings cover federally aided undergraduate entrants working and not enrolled, regardless of completion. Program completion earnings and legacy highest-credential earnings are separate populations. Read the returned provenance for each series before comparing cohort, measurement years, or dollar bases; historical data-file years are not entry years, and values are not re-inflated.
+2. **Match outcome populations and vintages.** Institution earnings cover federally aided undergraduate entrants working and not enrolled, regardless of completion. Program completion earnings and legacy highest-credential earnings are separate populations. Read the returned provenance before comparing cohorts, measurement years, or dollar bases. Historical data-file years identify publication vintages and dollar values retain their published basis. Keep the discontinued three-year declining-balance rate separate from the two- and four-year borrower-status series, which use different cohorts and status definitions. Report a published bin as a range or bound and leave it out of numeric rankings.
 3. **Check aggregation before comparing campuses.** Read metric_scope and ope6_id. Institution earnings, debt, and repayment pool at OPEID6; program earnings and debt pool within OPEID6, CIP, and credential. Shared values do not establish independent campus performance. Campus program awards are neither enrollment nor unique-student counts.
 4. **Check price periods before ordering costs.** Tuition and attendance each carry their own academic-year or program-year basis. Do not rank unlike periods together or infer one cost's basis from the other. For value analysis, retain net_price_basis and data_notes, including any fallback from the requested income bracket and the combination of campus prices with pooled outcomes.
-5. **Preserve unknowns.** Unavailable values do not establish zero, free tuition, or privacy suppression. Use the availability field for the particular earnings series; the legacy suppressed flag does not describe every completion series. A missing projected field is not proof that the field path is invalid.
-6. **Keep comparison scope explicit.** Ranks describe the returned comparison set. Respect unranked pooled or mixed-period rows, and process unprocessed_ids separately before presenting a shortlist as fully compared. Ranks from separate calls are not a single combined ranking.
+5. **Preserve unknowns.** Unavailable values do not establish zero, free tuition, or privacy suppression. Use the availability field for the particular earnings series; the legacy suppressed flag does not describe every completion series. A missing projected field is not proof that the field path is invalid. A school reported as lacking current operating certification needs separate verification before you describe it as closed.
+6. **Keep comparison scope explicit.** Ranks describe the returned comparison set. Admissions and aid participation rates are descriptive. A single found school supplies values without ranks or leaders. Respect unranked pooled or mixed-period rows, and process unprocessed_ids separately before presenting a shortlist as fully compared. Ranks from separate calls are not a single combined ranking.
 
 ## Workflows
 

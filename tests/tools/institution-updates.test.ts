@@ -40,6 +40,88 @@ it('characterizes zero and null raw custom values', async () => {
   });
   expect(text(r)).toContain('null');
 });
+it('preserves raw certification projections and provider school pagination', async () => {
+  const raw = record(1, { 'school.operating': 0 });
+  profiles.mockResolvedValue({ results: [raw] });
+  const projected = await runToolContract(getSchoolTool, { id: 1, fields: 'school.operating' });
+  expect(projected.structuredContent).toMatchObject({
+    schools: [{ selected_fields: { 'school.operating': 0 } }],
+  });
+  expect(text(projected)).toContain('**school.operating:** `0`');
+  search.mockResolvedValue({ results: [raw], metadata: { total: 3, page: 1, per_page: 1 } });
+  const result = await runToolContract(searchSchoolsTool, { page: 1, per_page: 1 });
+  expect(result.structuredContent).toMatchObject({ total: 3, page: 1, per_page: 1 });
+  expect(text(result)).toContain('Request page 2');
+});
+it('projects the two retention paths with their original values', async () => {
+  const fields = {
+    'latest.student.retention_rate_suppressed.four_year.full_time_pooled': 0.9482,
+    'latest.student.retention_rate_suppressed.lt_four_year.full_time_pooled': null,
+  };
+  profiles.mockResolvedValue({ results: [record(236948, fields)] });
+  const result = await runToolContract(getSchoolTool, {
+    id: 236948,
+    fields: Object.keys(fields).join(','),
+  });
+  expect(result.structuredContent).toMatchObject({ schools: [{ selected_fields: fields }] });
+  for (const [path, value] of Object.entries(fields))
+    expect(text(result)).toContain(`**${path}:** \`${value}\``);
+});
+it('compares certification alongside a missing ID without inferring unknown status', async () => {
+  comparison.mockResolvedValue({
+    results: [
+      record(1, { 'school.operating': 0 }),
+      record(2, { 'school.operating': 1 }),
+      record(3, { 'school.operating': null }),
+      record(4),
+    ],
+  });
+  const result = await runToolContract(compareSchoolsTool, {
+    ids: [1, 2, 3, 4, 5],
+    topic: 'costs',
+  });
+  expect(result.structuredContent).toMatchObject({
+    schools: [{ id: 1, operating: false }, { id: 2, operating: true }, { id: 3 }, { id: 4 }],
+    missing_ids: [5],
+    notice: expect.stringMatching(/returned no record.*lacks current operating certification/i),
+  });
+  const { schools } = result.structuredContent as { schools: unknown[] };
+  expect(schools[2]).not.toHaveProperty('operating');
+  expect(schools[3]).not.toHaveProperty('operating');
+  expect(text(result)).toContain('Operating certification: No');
+  expect(text(result)).toContain('Operating certification: Yes');
+  expect(text(result)).toContain('lacks current operating certification');
+});
+it('renders and composes certification with school search pagination and profile misses', async () => {
+  const raw = record(1, { 'school.operating': 0 });
+  search.mockResolvedValue({ results: [raw], metadata: { total: 2, page: 0, per_page: 1 } });
+  profiles.mockResolvedValue({ results: [raw] });
+  const searched = await runToolContract(searchSchoolsTool, { per_page: 1 });
+  const profile = await runToolContract(getSchoolTool, { id: [1, 2] });
+  for (const result of [searched, profile]) {
+    expect(result.structuredContent).toMatchObject({
+      schools: [{ id: 1, operating: false }],
+      notice: expect.stringContaining('lacks current operating certification'),
+    });
+    expect(text(result)).toContain('Operating certification: No');
+    expect(text(result)).toContain('lacks current operating certification');
+  }
+  expect(text(searched)).toContain('Request page 1');
+  expect(text(profile)).toContain('1 processed IDs returned no record');
+});
+it('renders certification alongside value notes', async () => {
+  const raw = record(1, { 'school.operating': 0 });
+  value.mockResolvedValue([{ results: [raw] }, { results: [raw] }]);
+  const result = await runToolContract(valueAnalysisTool, { id: 1 });
+  expect(result.structuredContent).toMatchObject({
+    operating: false,
+    data_notes: expect.arrayContaining([
+      expect.stringContaining('lacks current operating certification'),
+    ]),
+  });
+  expect(text(result)).toContain('Operating certification: No');
+  expect(text(result)).toContain('lacks current operating certification');
+});
 it('uses the provider predominant-degree labels', () => {
   expect([0, 1, 2, 3, 4, null, undefined, 99].map(degreeLevelLabel)).toEqual([
     'Not classified',

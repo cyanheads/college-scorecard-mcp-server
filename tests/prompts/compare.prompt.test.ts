@@ -14,6 +14,7 @@ describe('comparePrompt', () => {
       const messages = await comparePrompt.generate({ school_names: 'School A, School B', focus });
       const text = (messages[0]!.content as { text: string }).text;
       expect(text).toContain('scorecard_search_schools');
+      expect(text).toContain('Preserve any returned ranks and leave unranked rows unranked.');
       if (focus === 'programs') {
         expect(text).not.toContain('scorecard_compare_schools');
         expect(text).toContain('matching credential');
@@ -52,6 +53,8 @@ describe('comparePrompt', () => {
     const text = (messages[0]!.content as { type: string; text: string }).text;
     expect(text).toContain('outcomes');
     expect(text).toContain('scorecard_compare_schools');
+    expect(text).toContain('discontinued 3-year declining-balance measure');
+    expect(text).toContain('2016–17 file');
   });
 
   it('generates a valid message array for programs focus', async () => {
@@ -64,6 +67,8 @@ describe('comparePrompt', () => {
     expect(text).toContain('programs');
     expect(text).toContain('scorecard_get_programs');
     expect(text).toContain('scorecard_lookup_cip');
+    expect(text).toContain('one- and four-year completion-based earnings medians');
+    expect(text).toContain('Keep legacy highest-credential earnings separate');
   });
 
   it('includes school names in the generated message', async () => {
