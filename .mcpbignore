@@ -17,6 +17,8 @@
 /scripts/
 /changelog/
 /coverage/
+/.vitest/
+/node_modules/.vitest-cache/
 /.cache/
 /.github/
 /.vscode/

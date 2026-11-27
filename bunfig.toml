@@ -15,3 +15,7 @@ minimumReleaseAgeExcludes = ["@cyanheads/mcp-ts-core"]
 # Socket scans every package before install (malware, typosquats, CVEs).
 # Note: configuring a scanner disables Bun's auto-install.
 scanner = "@socketsecurity/bun-security-scanner"
+
+[run]
+# Run Vitest and its forks on Bun.
+bun = true
