@@ -2,6 +2,10 @@
 
 All notable changes to this project. Each entry links to its full per-version file in [changelog/](changelog/).
 
+## [0.6.1](changelog/0.6.x/0.6.1.md) — 2026-11-27
+
+Compare program earnings with national benchmarks and search for programs near a ZIP code.
+
 ## [0.6.0](changelog/0.6.x/0.6.0.md) — 2026-11-13 · ⚠️ Breaking
 
 Filter schools by price, completion, and certification, and compare outcomes with the reported cohorts and measures.
