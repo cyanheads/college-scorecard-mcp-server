@@ -12,7 +12,7 @@ export const programsPageResource = resource('scorecard://programs/{id}/page/{of
   name: 'scorecard-programs-page',
   title: 'School Programs Page',
   description:
-    'Page through programs in provider order. Offset is zero-based; limit normalizes to at most 100. Follow nextUri until null. Earnings and debt are OPEID6-pooled within CIP and credential, while awards are campus-specific.',
+    'Page through programs in provider order with a zero-based offset and a positive limit capped at 100. Follow nextUri until null. Within each CIP and credential, school earnings and debt pool by OPEID6 and national benchmarks cover the country. Awards are campus-specific.',
   mimeType: 'application/json',
   params: z.object({
     id: SchoolIdStringSchema,
@@ -22,9 +22,8 @@ export const programsPageResource = resource('scorecard://programs/{id}/page/{of
       .describe('Nonnegative zero-based row offset as decimal digits.'),
     limit: z
       .string()
-      .regex(/^\d{1,4}$/)
-      .refine((value) => Number(value) >= 1 && Number(value) <= 1000)
-      .describe('Requested row limit, 1–1000; values above 100 normalize to 100.'),
+      .regex(/^0*[1-9]\d*$/, 'Use a decimal integer of at least 1 for the row limit.')
+      .describe('Positive decimal row limit. Values above 100 normalize to 100.'),
   }),
   errors: [
     {

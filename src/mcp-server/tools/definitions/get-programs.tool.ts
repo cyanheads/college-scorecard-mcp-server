@@ -27,6 +27,7 @@ import { MetricAvailabilitySchema } from '@/services/scorecard/metric-availabili
 import {
   CompletionMetricsSchema,
   compareProgramEarnings,
+  ProgramDebtMetricsSchema,
   programOutcomes,
   programPage,
 } from '@/services/scorecard/program-outcomes.js';
@@ -55,6 +56,7 @@ const credentialLabel = (credential: RawProgram['credential']): string => {
 
 const ProgramSchema = z.object({
   ...CompletionMetricsSchema.shape,
+  ...ProgramDebtMetricsSchema.shape,
   earnings_count_availability: MetricAvailabilitySchema.describe(
     'Availability of the legacy highest-credential population count.',
   ),
@@ -80,12 +82,6 @@ const ProgramSchema = z.object({
     .optional()
     .describe(
       'Graduates working and not enrolled 1 year after their highest credential, matching the earnings median population.',
-    ),
-  median_debt: z
-    .number()
-    .optional()
-    .describe(
-      'Median cumulative Stafford/Grad PLUS borrowing among completers across attended institutions at the same academic level.',
     ),
   ipeds_awards_year1: z
     .number()
@@ -114,7 +110,7 @@ const ProgramSchema = z.object({
 export const getProgramsTool = tool('scorecard_get_programs', {
   title: 'Get School Programs',
   description:
-    'Page through field-of-study programs at one school, ranked and filtered by completion-based one-year earnings. Legacy highest-credential earnings remain separate from current one- and four-year completion series, with dictionary provenance. Earnings and debt pool across campuses sharing OPEID6 within CIP/credential; awards are campus-specific. Use scorecard_lookup_cip to find CIP codes by name.',
+    'Page through a school’s programs, ranked by school-specific one-year completion earnings. Includes separate completion and legacy earnings, national CIP and credential benchmarks, graduate at-institution debt, all-institutions debt, and campus awards. School earnings and debt pool by OPEID6 within CIP and credential. Use scorecard_lookup_cip to find CIP codes.',
   annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: true },
 
   input: z.object({
@@ -336,7 +332,6 @@ export const getProgramsTool = tool('scorecard_get_programs', {
 
     const programs = filtered.map((p): z.infer<typeof ProgramSchema> => {
       const outcomes = programOutcomes(p);
-      const medianDebt = p.debt?.staff_grad_plus?.all?.all_inst?.median;
       const suppressed = outcomes.suppressed;
       return {
         code: p.code ?? 'Unknown',
@@ -345,7 +340,6 @@ export const getProgramsTool = tool('scorecard_get_programs', {
         ...(p.credential?.level != null && { credential_level_code: p.credential.level }),
         ...(p.credential?.title != null && { credential_title: p.credential.title }),
         ...outcomes,
-        ...(medianDebt != null && { median_debt: medianDebt }),
         ...(p.counts?.ipeds_awards1 != null && { ipeds_awards_year1: p.counts.ipeds_awards1 }),
         ...(p.counts?.ipeds_awards2 != null && { ipeds_awards_year2: p.counts.ipeds_awards2 }),
         ...(suppressed && {

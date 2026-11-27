@@ -140,9 +140,9 @@ export function getServerConfig() {
 }
 ```
 
-`parseEnvConfig` maps Zod schema paths → env var names so errors name the variable (`MY_API_KEY`) not the path (`apiKey`). Throws `ConfigurationError`, which the framework prints as a clean startup banner.
+`parseEnvConfig` loads the working directory's `.env` before reading variables under Node, even at import time. It maps Zod schema paths to environment variable names so `ConfigurationError` names the variable. Call it from `setup()` for the framework's startup banner. An import-time failure exits with the error stack.
 
-For env booleans use `z.stringbool()`, never `z.coerce.boolean()` — `Boolean("false")` is `true`, so a coerced flag can't be disabled through the environment. `z.stringbool()` parses `true/false/1/0/yes/no/on/off` and rejects anything else, so `=false` actually disables.
+For environment booleans use `z.stringbool()`. It accepts `true/false`, `1/0`, `yes/no`, `on/off`, `y/n`, and `enabled/disabled` in any case. `z.coerce.boolean()` treats every nonempty string as true, including `"false"`.
 
 ### Server identity and instructions
 
@@ -191,6 +191,12 @@ Institution earnings cover federally aided undergraduate entrants working and no
 
 Program tool text leads with completion earnings and renders legacy highest-credential values separately. School comparison leaves descriptive metrics, singleton results, shared OPEID6 outcomes, and mixed price periods unranked. Negative dollar selectors normalize to zero with a notice. Earnings vintages deduplicate in caller order. Six-digit CIP lookup resolves to the four-digit group used by program selectors.
 
+Both program tools and both program resource routes share row normalization and dictionary provenance from `src/services/scorecard/program-outcomes.ts` and `src/data/program-provenance.ts`. `metric_scope.national_earnings` identifies national CIP × credential benchmarks. School earnings and debt pool at OPEID6 within CIP and credential. Each national statistic has independent availability and provenance, and the one-year national percentile dollar years are null.
+
+`median_debt` remains cumulative same-level borrowing across institutions. Graduate credentials 5–8 additionally expose `median_debt_at_institution`. `max_debt` selects the graduate measure for those credentials. A selected credential allows upstream prefiltering and a row-level check. Without it, filter each row before sorting or slicing, preserve upstream school totals, and keep school continuation on a locally empty page.
+
+Both search tools apply ZIP and distance at the provider before school paging. School discovery spaces joined ampersands before querying. Program search reports an ignored nonblank name when CIP takes precedence, with only the effective selectors echoed. Range serialization sends a zero upper bound as `0.0` while the effective query retains numeric zero. Program resource limits accept positive decimal integers and clamp to 100.
+
 ---
 
 ## Context
@@ -215,6 +221,8 @@ Handlers receive a unified `ctx` object. Key properties:
 ## Errors
 
 Handlers throw — the framework catches, classifies, and formats.
+
+A failure carrying a declared `data.reason` inherits the contract's `retryable` as `data.retryable` unless the throw supplies its own value. When the service itself calls `withRetry`, set `retryable: false` at the throw site for deterministic failures so the retry loop can see it.
 
 **Recommended: typed error contract.** Declare `errors: [{ reason, code, when, recovery, retryable?, severity?, thrownBy? }]` on `tool()` / `resource()` to receive `ctx.fail(reason, …)` typed against the reason union. TypeScript catches typos at compile time, `data.reason` is auto-populated for observability, linter enforces conformance against the handler body. `recovery` is required (≥ 5 words, lint-validated) — the single source of truth for the agent's next move. The framework puts it on the wire whenever a failure carrying that `reason` arrives without a hint — a bare `ctx.fail('reason')` or a service throw with `data: { reason }` — as `data.recovery.hint`, mirrored into `content[]` text unless the message already contains it verbatim; override with an explicit `{ recovery: { hint: '...' } }` when dynamic runtime context matters. Every error envelope also carries `data.requestId`, the id the server's log records for that call carry, and `content[]` closes with `(reason … · request <id>)`. Mark an entry the service layer throws with `thrownBy: 'service'` so `error-contract-unthrown` skips it — lint-only metadata, nothing at runtime reads it. Baseline codes (`InternalError`, `ServiceUnavailable`, `Timeout`, `ValidationError`, `SerializationError`, `RequestCancelled`) bubble freely and don't need declaring.
 
@@ -367,7 +375,8 @@ When you complete a skill's checklist, check the boxes and add a completion time
 | `bun run tree` | Generate directory structure doc |
 | `bun run format` | Auto-fix formatting (safe fixes only) |
 | `bun run format:unsafe` | Also apply Biome's unsafe autofixes — review the diff; they can change behavior |
-| `bun run test` | Run tests (Vitest — use `bun run test`, not `bun test`) |
+| `bun run test` | Run Vitest on Bun |
+| `node ./node_modules/vitest/vitest.mjs run` | Run the Vitest suite on Node |
 | `bun run start:stdio` | Production mode (stdio) |
 | `bun run start:http` | Production mode (HTTP) |
 | `bun run changelog:build` | Regenerate `CHANGELOG.md` from `changelog/*.md` |

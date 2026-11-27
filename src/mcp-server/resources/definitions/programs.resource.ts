@@ -15,7 +15,7 @@ export const programsResource = resource('scorecard://programs/{id}', {
   name: 'scorecard-programs',
   title: 'School Programs',
   description:
-    'First 20 program rows in provider order, with separate legacy highest-credential and current completion populations and dictionary provenance. Earnings/debt pool by OPEID6 within CIP and credential; awards are campus-specific. Follow nextUri to scorecard://programs/{id}/page/{offset}/{limit} for remaining rows.',
+    'First 20 program rows in provider order, with school earnings, national CIP and credential benchmarks, all-institutions and graduate at-institution debt, campus awards, and dictionary provenance. School earnings and debt pool by OPEID6 within CIP and credential. Follow nextUri for remaining rows.',
   mimeType: 'application/json',
   params: z.object({
     id: SchoolIdStringSchema,

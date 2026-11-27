@@ -690,6 +690,44 @@ export const FIELD_CATALOG: FieldEntry[] = [
     sortable: false,
     category: 'programs',
   },
+  {
+    path: 'latest.programs.cip_4_digit.debt.staff_grad_plus.all.eval_inst.median',
+    description:
+      'Median cumulative Stafford/Grad PLUS borrowing disbursed at the evaluated institution, at the same academic level',
+    type: 'integer',
+    sortable: false,
+    category: 'programs',
+  },
+  ...([1, 4] as const).flatMap((years): FieldEntry[] => [
+    {
+      path: `latest.programs.cip_4_digit.earnings.${years}_yr.overall_median_earnings_national`,
+      description: `National CIP and credential median earnings ${years} years after completion among graduates working and not enrolled`,
+      type: 'integer',
+      sortable: false,
+      category: 'programs',
+    },
+    {
+      path: `latest.programs.cip_4_digit.earnings.${years}_yr.overall_p25_earnings_national`,
+      description: `National CIP and credential 25th-percentile earnings ${years} years after completion among graduates working and not enrolled`,
+      type: 'integer',
+      sortable: false,
+      category: 'programs',
+    },
+    {
+      path: `latest.programs.cip_4_digit.earnings.${years}_yr.overall_p75_earnings_national`,
+      description: `National CIP and credential 75th-percentile earnings ${years} years after completion among graduates working and not enrolled`,
+      type: 'integer',
+      sortable: false,
+      category: 'programs',
+    },
+    {
+      path: `latest.programs.cip_4_digit.earnings.${years}_yr.working_not_enrolled.overall_count_national`,
+      description: `National CIP and credential count of graduates working and not enrolled ${years} years after completion`,
+      type: 'integer',
+      sortable: false,
+      category: 'programs',
+    },
+  ]),
 ];
 
 /**

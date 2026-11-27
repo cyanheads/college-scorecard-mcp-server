@@ -37,6 +37,8 @@ it('renders a current-only row with independent median and count availability', 
   expect(programMetricLines(row)).toEqual([
     '- Completion-based 1-year earnings: $121,837 (available) | Population count: 23 (available)',
     '- Completion-based 4-year earnings: Not available (privacy_suppressed) | Population count: 0 (available)',
+    '- National CIP × credential 1-year benchmark: Median: Not available (unavailable) | P25: Not available (unavailable) | P75: Not available (unavailable) | Population count: Not available (unavailable)',
+    '- National CIP × credential 4-year benchmark: Median: Not available (unavailable) | P25: Not available (unavailable) | P75: Not available (unavailable) | Population count: Not available (unavailable)',
     '- Legacy highest-credential 1-year earnings: Not available (unavailable) | Population count: Not available (unavailable) | Suppressed: false',
   ]);
 });
@@ -45,11 +47,17 @@ it('renders dictionary populations, map cells, variables, dollar basis and aggre
   const text = programProvenanceLines(PROGRAM_PROVENANCE, PROGRAM_METRIC_SCOPE).join('\n');
   for (const part of [
     'Earnings: opeid6 | Debt: opeid6 | IPEDS awards: campus | Program identity: CIP code and credential level',
+    'National earnings benchmark scope: national by CIP and credential',
     '[College Scorecard data dictionary](<https://collegescorecard.ed.gov/files/CollegeScorecardDataDictionary.xlsx>)',
     'Federally aided graduates working and not enrolled one year after completion. Cohorts: 2020-21, 2021-22 | Measurement years: 2022, 2023 | Dollar year: 2024 | Median: EARN_MDN_1YR (K125) | Count: EARN_COUNT_WNE_1YR (K124)',
     'Federally aided graduates working and not enrolled four years after completion. Cohorts: 2017-18, 2018-19 | Measurement years: 2022, 2023 | Dollar year: 2024 | Median: EARN_MDN_4YR (K131) | Count: EARN_COUNT_WNE_4YR (K130)',
     'Federally aided graduates working and not enrolled one year after their highest credential. Cohorts: 2016-17, 2017-18 | Measurement years: 2018, 2019 | Dollar year: 2020 | Median: EARN_MDN_HI_1YR (K80) | Count: EARN_COUNT_WNE_HI_1YR (K79)',
     'Completers with Stafford/Grad PLUS borrowing across attended institutions at the same academic level. Cohorts: 2022-23, 2023-24 | Variable: DEBT_ALL_STGP_ANY_MDN (K15)',
+    'DEBT_ALL_STGP_EVAL_MDN (K18)',
+    'P25: EARN_P25_1YR_NAT (K206), dollar year: not stated',
+    'P75: EARN_P75_1YR_NAT (K208), dollar year: not stated',
+    'P75: EARN_P75_4YR_NAT (K179), dollar year: 2024',
+    'Count: EARN_COUNT_WNE_4YR_NAT (K176)',
     'Campus awards, not enrollment or unique students. Academic year: 2022-23 | Variable: IPEDSCOUNT1 (K11)',
     'Campus awards, not enrollment or unique students. Academic year: 2023-24 | Variable: IPEDSCOUNT2 (K12)',
   ])

@@ -10,6 +10,7 @@ import type {
 } from '@/data/program-provenance.js';
 import type {
   CompletionMetricsSchema,
+  ProgramDebtMetricsSchema,
   programOutcomes,
 } from '@/services/scorecard/program-outcomes.js';
 
@@ -35,13 +36,13 @@ export function programNumber(value: number): string {
 }
 
 type ProgramMetrics = z.infer<typeof CompletionMetricsSchema> &
+  z.infer<typeof ProgramDebtMetricsSchema> &
   Pick<
     ReturnType<typeof programOutcomes>,
     'earnings_availability' | 'earnings_count_availability' | 'suppressed'
   > & {
     earnings_1yr_median?: number | undefined;
     earnings_count?: number | undefined;
-    median_debt?: number | undefined;
     ipeds_awards_year1?: number | undefined;
     ipeds_awards_year2?: number | undefined;
     suppression_note?: string | undefined;
@@ -54,12 +55,27 @@ export function programMetricLines(row: ProgramMetrics): string[] {
   const lines = [
     `- Completion-based 1-year earnings: ${metric(row.completion_1yr_median, row.completion_1yr_availability, '$')} | Population count: ${metric(row.completion_1yr_count, row.completion_1yr_count_availability)}`,
     `- Completion-based 4-year earnings: ${metric(row.completion_4yr_median, row.completion_4yr_availability, '$')} | Population count: ${metric(row.completion_4yr_count, row.completion_4yr_count_availability)}`,
-    `- Legacy highest-credential 1-year earnings: ${metric(row.earnings_1yr_median, row.earnings_availability, '$')} | Population count: ${metric(row.earnings_count, row.earnings_count_availability)} | Suppressed: ${row.suppressed}`,
   ];
+  for (const [years, benchmark] of [
+    [1, row.completion_1yr_national],
+    [4, row.completion_4yr_national],
+  ] as const) {
+    const { availability } = benchmark;
+    lines.push(
+      `- National CIP × credential ${years}-year benchmark: Median: ${metric(benchmark.median, availability.median, '$')} | P25: ${metric(benchmark.p25, availability.p25, '$')} | P75: ${metric(benchmark.p75, availability.p75, '$')} | Population count: ${metric(benchmark.count, availability.count)}`,
+    );
+  }
+  lines.push(
+    `- Legacy highest-credential 1-year earnings: ${metric(row.earnings_1yr_median, row.earnings_availability, '$')} | Population count: ${metric(row.earnings_count, row.earnings_count_availability)} | Suppressed: ${row.suppressed}`,
+  );
   if (row.suppression_note != null)
     lines.push(`- Suppression note: ${programText(row.suppression_note)}`);
   if (row.median_debt != null)
     lines.push(`- Median cumulative Stafford/Grad PLUS debt: $${programNumber(row.median_debt)}`);
+  if (row.median_debt_at_institution != null)
+    lines.push(
+      `- Median cumulative Stafford/Grad PLUS debt disbursed at this institution: $${programNumber(row.median_debt_at_institution)}`,
+    );
   if (row.ipeds_awards_year1 != null)
     lines.push(`- IPEDS Awards (debt cohort year 1): ${programNumber(row.ipeds_awards_year1)}`);
   if (row.ipeds_awards_year2 != null)
@@ -77,6 +93,7 @@ export function programProvenanceLines(
     '### Metric scope and provenance',
     '',
     `Earnings: ${scope.earnings} | Debt: ${scope.debt} | IPEDS awards: ${scope.ipeds_awards} | Program identity: ${programText(scope.program_identity)}`,
+    `National earnings benchmark scope: ${scope.national_earnings} by CIP and credential`,
     '',
     `Source: ${markdownLink('College Scorecard data dictionary', provenance.source)}`,
     '',
@@ -90,10 +107,25 @@ export function programProvenanceLines(
       `- **${label}:** ${programText(series.population)}. Cohorts: ${series.cohort.map(programText).join(', ')} | Measurement years: ${series.measurement_years.join(', ')} | Dollar year: ${series.dollar_year} | Median: ${programText(series.median_variable)} (${programText(series.median_cell)}) | Count: ${programText(series.count_variable)} (${programText(series.count_cell)})`,
     );
   }
-  const { debt, ipeds_awards_year1, ipeds_awards_year2 } = provenance;
-  lines.push(
-    `- **Debt:** ${programText(debt.population)}. Cohorts: ${debt.cohort.map(programText).join(', ')} | Variable: ${programText(debt.variable)} (${programText(debt.cell)})`,
-  );
+  for (const [years, series] of [
+    [1, provenance.completion_1yr_national],
+    [4, provenance.completion_4yr_national],
+  ] as const) {
+    const earningsSource = (stat: typeof series.median) =>
+      `${programText(stat.variable)} (${programText(stat.cell)}), dollar year: ${stat.dollar_year ?? 'not stated'}`;
+    lines.push(
+      `- **National CIP × credential ${years}-year benchmark:** ${programText(series.population)}. Cohorts: ${series.cohort.map(programText).join(', ')} | Measurement years: ${series.measurement_years.join(', ')} | Median: ${earningsSource(series.median)} | P25: ${earningsSource(series.p25)} | P75: ${earningsSource(series.p75)} | Count: ${programText(series.count.variable)} (${programText(series.count.cell)})`,
+    );
+  }
+  for (const [label, debt] of [
+    ['Debt', provenance.debt],
+    ['Graduate debt disbursed at this institution', provenance.debt_at_institution],
+  ] as const) {
+    lines.push(
+      `- **${label}:** ${programText(debt.population)}. Cohorts: ${debt.cohort.map(programText).join(', ')} | Variable: ${programText(debt.variable)} (${programText(debt.cell)})`,
+    );
+  }
+  const { ipeds_awards_year1, ipeds_awards_year2 } = provenance;
   for (const [year, award] of [
     [1, ipeds_awards_year1],
     [2, ipeds_awards_year2],

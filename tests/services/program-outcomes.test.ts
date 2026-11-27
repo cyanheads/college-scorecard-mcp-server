@@ -93,5 +93,51 @@ describe('program populations', () => {
       'Treasury AY2020-21, AY2021-22 pooled earnings cohort measured in CY2022, CY2023, inflation adjusted to 2024 dollars',
     );
     expect(reference.cells.K15).toBe('NSLDS pooled AY2022-23, AY2023-24 cohort');
+    expect(PROGRAM_PROVENANCE.debt_at_institution).toMatchObject({
+      cohort: ['2022-23', '2023-24'],
+      cell: 'K18',
+      variable: 'DEBT_ALL_STGP_EVAL_MDN',
+    });
+    expect(reference.cells.K18).toBe('NSLDS pooled AY2022-23, AY2023-24 cohort');
+  });
+
+  it.each([
+    ['completion_1yr_national', ['K204', 'K206', 'K208', 'K199'], [2024, null, null]],
+    ['completion_4yr_national', ['K177', 'K178', 'K179', 'K176'], [2024, 2024, 2024]],
+  ] as const)('uses independent dictionary provenance for %s', (key, cells, dollarYears) => {
+    const { median, p25, p75, count } = PROGRAM_PROVENANCE[key];
+    expect([median.cell, p25.cell, p75.cell, count.cell]).toEqual(cells);
+    expect([median.dollar_year, p25.dollar_year, p75.dollar_year]).toEqual(dollarYears);
+    expect(reference.cells[cells[3]]).toMatch(/measured in CY2022, CY2023$/);
+    for (const [index, year] of dollarYears.entries()) {
+      const source = reference.cells[cells[index]!];
+      if (year == null) expect(source).not.toContain('inflation adjusted');
+      else expect(source).toContain('inflation adjusted to 2024 dollars');
+    }
+  });
+
+  it('keeps graduate zero and treats suppressed debt as unavailable for either series', () => {
+    const result = programOutcomes({
+      credential: { level: 8 },
+      debt: { staff_grad_plus: { all: { all_inst: { median: 'PS' }, eval_inst: { median: 0 } } } },
+    });
+    expect(result).not.toHaveProperty('median_debt');
+    expect(result.median_debt_at_institution).toBe(0);
+    expect(
+      programOutcomes({
+        credential: { level: 7 },
+        debt: {
+          staff_grad_plus: {
+            all: { all_inst: { median: 100 }, eval_inst: { median: 'PrivacySuppressed' } },
+          },
+        },
+      }),
+    ).toMatchObject({ median_debt: 100 });
+    expect(
+      programOutcomes({
+        credential: { level: 7 },
+        debt: { staff_grad_plus: { all: { eval_inst: { median: 'PrivacySuppressed' } } } },
+      }),
+    ).not.toHaveProperty('median_debt_at_institution');
   });
 });

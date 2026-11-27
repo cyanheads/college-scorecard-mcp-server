@@ -3,6 +3,19 @@
  * @module services/scorecard/types
  */
 
+type RawProgramMetric = number | 'PS' | 'PrivacySuppressed' | null;
+
+interface RawProgramEarnings {
+  overall_median_earnings?: RawProgramMetric;
+  overall_median_earnings_national?: RawProgramMetric;
+  overall_p25_earnings_national?: RawProgramMetric;
+  overall_p75_earnings_national?: RawProgramMetric;
+  working_not_enrolled?: {
+    overall_count?: RawProgramMetric;
+    overall_count_national?: RawProgramMetric;
+  };
+}
+
 /** Nested program object returned under `latest.programs.cip_4_digit` */
 export interface RawProgram {
   code?: string;
@@ -13,22 +26,19 @@ export interface RawProgram {
   credential?: { level?: number | null; title?: string | null };
   debt?: {
     staff_grad_plus?: {
-      all?: { all_inst?: { median?: number | null } };
+      all?: {
+        all_inst?: { median?: RawProgramMetric };
+        eval_inst?: { median?: RawProgramMetric };
+      };
     };
   };
   earnings?: {
-    '1_yr'?: {
-      overall_median_earnings?: number | 'PS' | 'PrivacySuppressed' | null;
-      working_not_enrolled?: { overall_count?: number | 'PS' | 'PrivacySuppressed' | null };
-    };
-    '4_yr'?: {
-      overall_median_earnings?: number | 'PS' | 'PrivacySuppressed' | null;
-      working_not_enrolled?: { overall_count?: number | 'PS' | 'PrivacySuppressed' | null };
-    };
+    '1_yr'?: RawProgramEarnings;
+    '4_yr'?: RawProgramEarnings;
     highest?: {
       '1_yr'?: {
-        overall_median_earnings?: number | 'PS' | 'PrivacySuppressed' | null;
-        working_not_enrolled?: { overall_count?: number | 'PS' | 'PrivacySuppressed' | null };
+        overall_median_earnings?: RawProgramMetric;
+        working_not_enrolled?: { overall_count?: RawProgramMetric };
       };
     };
   };

@@ -818,7 +818,36 @@ describe('Scorecard caller contracts', () => {
       },
     );
 
-    it('omits ignored and blank selectors from program search echoes', async () => {
+    it('uses a meaningful program name if CIP is blank and ignores a blank program name', async () => {
+      serve([school([program()])]);
+      const nameOnly = await runToolContract(searchProgramsTool, {
+        cip_code: '  ',
+        program_name: 'Computer',
+      });
+      expect(nameOnly.structuredContent).toMatchObject({
+        shown: 1,
+        query: { program_name: 'Computer' },
+      });
+      expect(textOf(nameOnly)).not.toContain('program_name was ignored');
+      const cipOnly = await runToolContract(searchProgramsTool, {
+        cip_code: '11.07',
+        program_name: '  ',
+      });
+      expect(cipOnly.structuredContent).toMatchObject({ shown: 1, query: { cip_code: '1107' } });
+      expect(textOf(cipOnly)).not.toContain('program_name was ignored');
+    });
+
+    it.each(['&', '& &', 'William & Mary'])(
+      'preserves the school name filter %s',
+      async (query) => {
+        serve([]);
+        const result = await runToolContract(searchSchoolsTool, { query });
+        expect(requests[0]!.searchParams.get('school.name')).toBe(query);
+        expect(result.structuredContent).toMatchObject({ query: { query } });
+      },
+    );
+
+    it('reports ignored program names without echoing them as effective selectors', async () => {
       serve([school([program()])]);
       const result = await runToolContract(searchProgramsTool, {
         cip_code: ' 11.07 ',
@@ -831,7 +860,11 @@ describe('Scorecard caller contracts', () => {
       expect((result.structuredContent as { query: unknown }).query).not.toHaveProperty(
         'program_name',
       );
-      expect(textOf(result)).not.toContain('ignored');
+      expect(result.structuredContent).toMatchObject({
+        shown: 1,
+        notice: expect.stringContaining('program_name was ignored because cip_code was supplied.'),
+      });
+      expect(textOf(result)).toContain('program_name was ignored because cip_code was supplied.');
     });
     it('characterizes default identity and cost rendering', async () => {
       serve([{ ...school(), 'latest.cost.tuition.in_state': 1234 }]);
@@ -1349,6 +1382,7 @@ describe('Scorecard caller contracts', () => {
         );
         const result = await runToolContract(searchProgramsTool, {
           cip_code: '11.07',
+          credential_level: 3,
           min_earnings: min,
           max_debt: max,
           per_page: 1,
@@ -1376,12 +1410,125 @@ describe('Scorecard caller contracts', () => {
         ).toBe(false);
         expect(
           params.get('latest.programs.cip_4_digit.debt.staff_grad_plus.all.all_inst.median__range'),
-        ).toBe(max === undefined ? null : `..${max}`);
+        ).toBe(max === undefined ? null : max === 0 ? '..0.0' : `..${max}`);
         expect(params.has('latest.programs.cip_4_digit.debt.median_debt__range')).toBe(false);
         for (const title of expected) expect(textOf(result)).toContain(`— ${title}`);
         if (expected.length === 0) expect(textOf(result)).toContain('No programs matched');
       },
     );
+
+    it.each([3, 5, 99, undefined])(
+      'uses the row debt series at credential %s',
+      async (credential_level) => {
+        const row = (title: string, level: number, all: unknown, at: unknown) => ({
+          ...program(),
+          title,
+          credential: { level },
+          debt: {
+            staff_grad_plus: { all: { all_inst: { median: all }, eval_inst: { median: at } } },
+          },
+        });
+        serve(
+          [
+            school([
+              row('Bachelor at limit', 3, 100, 500),
+              row('Graduate zero', 5, null, 0),
+              row('Graduate above limit', 5, 0, 101),
+              row('Graduate suppressed', 5, 0, 'PrivacySuppressed'),
+              row('Non-credential match', 99, 0, 500),
+              row('Bachelor suppressed', 3, 'PS', 0),
+            ]),
+          ],
+          { total: 4, page: 0, per_page: 1 },
+        );
+        const result = await runToolContract(searchProgramsTool, {
+          cip_code: '11.07',
+          credential_level,
+          max_debt: 100,
+          per_page: 1,
+        });
+        const params = requests[0]!.searchParams;
+        const base = 'latest.programs.cip_4_digit.debt.staff_grad_plus.all';
+        expect(params.get(`${base}.eval_inst.median__range`)).toBe(
+          credential_level === 5 ? '..100' : null,
+        );
+        expect(params.get(`${base}.all_inst.median__range`)).toBe(
+          credential_level === 3 || credential_level === 99 ? '..100' : null,
+        );
+        const expected = [
+          { title: 'Bachelor at limit', level: 3, debt: { median_debt: 100 } },
+          { title: 'Graduate zero', level: 5, debt: { median_debt_at_institution: 0 } },
+          { title: 'Non-credential match', level: 99, debt: { median_debt: 0 } },
+        ].filter(({ level }) => credential_level === undefined || level === credential_level);
+        expect(result.structuredContent).toMatchObject({
+          programs: expected.map(({ title, debt }) => ({ program_title: title, ...debt })),
+          total: 4,
+          next: { page: 1, offset: 0 },
+        });
+        const rendered = textOf(result);
+        for (const { title } of expected) expect(rendered).toContain(title);
+        if (credential_level === 5 || credential_level === undefined)
+          expect(rendered).toContain('debt disbursed at this institution: $0');
+        if (credential_level === undefined) {
+          expect(result.structuredContent).toMatchObject({
+            notice: expect.stringContaining('School totals are before the debt filter'),
+          });
+          expect(rendered).toContain('School totals are before the debt filter');
+        }
+      },
+    );
+
+    it('keeps school continuation when mixed credentials have no qualifying debt', async () => {
+      serve([school([program()])], { total: 3, page: 1, per_page: 1 });
+      const result = await runToolContract(searchProgramsTool, {
+        max_debt: -1,
+        page: 1,
+        per_page: 1,
+      });
+      expect(result.structuredContent).toMatchObject({
+        total: 3,
+        shown: 0,
+        next: { page: 2, offset: 0 },
+        query: { max_debt: 0 },
+      });
+      expect(textOf(result)).toContain('Request page 2 with offset 0');
+      expect(textOf(result)).toContain('max_debt normalized to $0 (requested -1).');
+    });
+
+    it('returns national earnings separately from the school earnings used to filter', async () => {
+      serve([
+        school([
+          {
+            ...program(86200),
+            earnings: {
+              '1_yr': {
+                overall_median_earnings: 86200,
+                overall_median_earnings_national: 80182,
+                overall_p25_earnings_national: 53663,
+                overall_p75_earnings_national: 106060,
+                working_not_enrolled: { overall_count_national: 35263 },
+              },
+              '4_yr': { overall_median_earnings_national: 'PS' },
+            },
+          },
+        ]),
+      ]);
+      const result = await runToolContract(searchProgramsTool, { min_earnings: 85000 });
+      expect(result.structuredContent).toMatchObject({
+        shown: 1,
+        programs: [
+          {
+            completion_1yr_median: 86200,
+            completion_1yr_national: { median: 80182, p25: 53663, p75: 106060, count: 35263 },
+            completion_4yr_national: {
+              availability: { median: 'privacy_suppressed', p25: 'unavailable' },
+            },
+          },
+        ],
+      });
+      expect(textOf(result)).toContain('80,182');
+      expect(textOf(result)).toContain('35,263');
+    });
 
     it('publishes real program paths and supported sort flags', () => {
       const paths = FIELD_CATALOG.map((field) => field.path);
@@ -1401,6 +1548,101 @@ describe('Scorecard caller contracts', () => {
       expect(
         FIELD_CATALOG.find((f) => f.path === 'latest.cost.avg_net_price.overall')?.sortable,
       ).toBe(true);
+    });
+  });
+
+  describe('program geography', () => {
+    it('keeps geographic filters and the CIP and credential pair on each continuation', async () => {
+      const rows = [
+        { ...program(80000), title: 'First' },
+        { ...program(90000), title: 'Second' },
+      ];
+      api.route({
+        match: endpoint,
+        respond: (request) => {
+          const url = new URL(request.url);
+          requests.push(url);
+          const page = Number(url.searchParams.get('page'));
+          return Response.json({
+            metadata: { total: 2, page, per_page: 1 },
+            results: page === 0 ? [school(rows)] : [school([rows[0]!])],
+          });
+        },
+      });
+      const selectors = {
+        zip: ' 98105-1234 ',
+        distance: ' 5.5KM ',
+        state: ' wa, wa ',
+        cip_code: '11.07',
+        credential_level: 3,
+        per_page: 1,
+        limit: 1,
+      };
+      for (const [page, offset, next, title] of [
+        [0, 0, { page: 0, offset: 1 }, 'Second'],
+        [0, 1, { page: 1, offset: 0 }, 'First'],
+        [1, 0, null, 'First'],
+        [1, 2, null, undefined],
+      ] as const) {
+        const result = await runToolContract(searchProgramsTool, { ...selectors, page, offset });
+        expect(result.structuredContent).toMatchObject({
+          total: 2,
+          page,
+          offset,
+          next,
+          programs: title ? [{ program_title: title }] : [],
+          query: { zip: '98105-1234', distance: '5.5km', page, offset },
+        });
+        const rendered = textOf(result);
+        expect(rendered).toContain('"zip":"98105-1234"');
+        expect(rendered).toContain('"distance":"5.5km"');
+        expect(rendered).toContain(
+          next ? `Continuation: page ${next.page}, offset ${next.offset}` : 'Continuation: null',
+        );
+        if (!title) expect(rendered).toContain('program offset is exhausted');
+        const params = requests.at(-1)!.searchParams;
+        expect(params.get('zip')).toBe('98105-1234');
+        expect(params.get('distance')).toBe('5.5km');
+        expect(params.get('school.state')).toBe('WA');
+        expect(params.get('latest.programs.cip_4_digit.code')).toBe('1107');
+        expect(params.get('latest.programs.cip_4_digit.credential.level')).toBe('3');
+        expect(params.get('page')).toBe(String(page));
+      }
+      expect(requests).toHaveLength(4);
+    });
+
+    it.each([undefined, '  ', '0mi', '.5', '1km'])(
+      'preserves supported radii %s with ZIP',
+      async (distance) => {
+        serve([]);
+        const result = await runToolContract(searchProgramsTool, { zip: '98105', distance });
+        expect(result.structuredContent).toMatchObject({ total: 0, query: { zip: '98105' } });
+        expect(requests[0]!.searchParams.get('zip')).toBe('98105');
+        expect(requests[0]!.searchParams.get('distance')).toBe(distance?.trim() || null);
+      },
+    );
+
+    it.each([
+      { distance: '1mi' },
+      { distance: '1mi', zip: ' ' },
+      { zip: '981' },
+      { zip: '98105', distance: '-1mi' },
+      { zip: '98105', distance: '1zz' },
+    ])('rejects invalid program geography %j before fetching', async (input) => {
+      serve([]);
+      const result = await runToolContract(searchProgramsTool, input);
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        error: {
+          code: JsonRpcErrorCode.ValidationError,
+          data: {
+            reason: 'api_validation',
+            recovery: { hint: expect.any(String) },
+          },
+        },
+      });
+      expect(textOf(result)).toContain('reason api_validation');
+      expect(requests).toHaveLength(0);
     });
   });
 
@@ -1556,6 +1798,83 @@ describe('Scorecard caller contracts', () => {
 
   describe('school sorting and single-sex flags', () => {
     it.each([
+      ['Texas A&M', 'Texas A & M', 228723],
+      ['North Carolina A&T', 'North Carolina A & T', 199102],
+    ])(
+      'searches for %s with provider-compatible ampersand spacing',
+      async (query, effective, id) => {
+        api.route({
+          match: endpoint,
+          respond: (request) => {
+            const url = new URL(request.url);
+            requests.push(url);
+            const matched = url.searchParams.get('school.name') === effective;
+            return Response.json({
+              metadata: { total: matched ? 2 : 0, page: 0, per_page: 1 },
+              results: matched ? [{ ...school(), id }] : [],
+            });
+          },
+        });
+        const result = await runToolContract(searchSchoolsTool, {
+          query,
+          state: ' WA ',
+          per_page: 1,
+        });
+        expect(requests).toHaveLength(1);
+        expect(requests[0]!.searchParams.get('school.state')).toBe('WA');
+        expect(result.structuredContent).toMatchObject({
+          schools: [{ id }],
+          query: { query: effective },
+          total: 2,
+          truncated: true,
+        });
+        expect(textOf(result)).toContain(`"query":${JSON.stringify(effective)}`);
+        expect(textOf(result)).toContain('Request page 1');
+      },
+    );
+
+    it('uses decimal zero for every closed zero school upper endpoint', async () => {
+      serve([school()]);
+      const result = await runToolContract(searchSchoolsTool, {
+        max_net_price: 0,
+        size_range: { min: 0, max: 0 },
+        acceptance_rate_range: { min: 0, max: 0 },
+        min_completion_rate: 0,
+      });
+      const params = requests[0]!.searchParams;
+      expect(params.get('latest.cost.avg_net_price.overall__range')).toBe('..0.0');
+      expect(params.get('latest.student.size__range')).toBe('0..0.0');
+      expect(params.get('latest.admissions.admission_rate.overall__range')).toBe('0..0.0');
+      expect(params.get('latest.completion.rate_suppressed.overall__range')).toBe('0..');
+      expect(result.structuredContent).toMatchObject({
+        shown: 1,
+        query: { max_net_price: 0, size_range: { min: 0, max: 0 } },
+      });
+      expect(textOf(result)).toContain('"max_net_price":0');
+    });
+
+    it('serializes combined zero program ceilings while keeping numeric query and notices', async () => {
+      serve([]);
+      const result = await runToolContract(searchProgramsTool, {
+        credential_level: 3,
+        max_net_price: -1,
+        max_debt: 0,
+      });
+      const params = requests[0]!.searchParams;
+      expect(params.get('latest.cost.avg_net_price.overall__range')).toBe('..0.0');
+      expect(
+        params.get('latest.programs.cip_4_digit.debt.staff_grad_plus.all.all_inst.median__range'),
+      ).toBe('..0.0');
+      expect(result.structuredContent).toMatchObject({
+        total: 0,
+        query: { max_net_price: 0, max_debt: 0 },
+        notice: expect.stringContaining('max_net_price normalized to $0 (requested -1).'),
+      });
+      expect(textOf(result)).toContain('"max_debt":0');
+      expect(textOf(result)).toContain('No schools matched');
+    });
+
+    it.each([
       { page: 0, total: 2, count: 1, more: true },
       { page: 1, total: 2, count: 1, more: false },
       { page: 2, total: 2, count: 0, more: false },
@@ -1578,7 +1897,7 @@ describe('Scorecard caller contracts', () => {
         const result = await runToolContract(searchSchoolsTool, { ...filters, page, per_page: 1 });
         expect(requests).toHaveLength(1);
         const params = requests[0]!.searchParams;
-        expect(params.get('latest.cost.avg_net_price.overall__range')).toBe('..0');
+        expect(params.get('latest.cost.avg_net_price.overall__range')).toBe('..0.0');
         expect(params.get('latest.completion.rate_suppressed.overall__range')).toBe('0..');
         expect(params.get('school.minority_serving.historically_black')).toBe('0');
         expect(params.get('school.operating')).toBe('0');
@@ -1626,7 +1945,9 @@ describe('Scorecard caller contracts', () => {
     it('clamps negative net price with an echoed selector and a notice alongside empty recovery', async () => {
       serve([]);
       const result = await runToolContract(searchSchoolsTool, { max_net_price: -1 });
-      expect(requests[0]!.searchParams.get('latest.cost.avg_net_price.overall__range')).toBe('..0');
+      expect(requests[0]!.searchParams.get('latest.cost.avg_net_price.overall__range')).toBe(
+        '..0.0',
+      );
       expect(result.structuredContent).toMatchObject({
         query: { max_net_price: 0 },
         notice: expect.stringMatching(/max_net_price.*0.*No schools matched/),
@@ -1636,7 +1957,7 @@ describe('Scorecard caller contracts', () => {
     });
 
     it.each([
-      [-1.5, '..0'],
+      [-1.5, '..0.0'],
       [15000.5, '..15000.5'],
     ])(
       'forwards program search net price %s as an inclusive ceiling',

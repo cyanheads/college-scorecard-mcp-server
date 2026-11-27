@@ -38,8 +38,8 @@ US college data from the Department of Education College Scorecard: costs, earni
 | `scorecard_search_schools` | Search institutions by location, price, completion, operating certification, and other school characteristics. Sort by fields with API sort support. |
 | `scorecard_get_school` | Institutional profiles with costs, admissions, aid, demographics, completion, and borrower repayment outcomes. |
 | `scorecard_compare_schools` | Side-by-side comparison of up to five schools. Includes ranks and leaders for eligible metrics. |
-| `scorecard_get_programs` | Paged field-of-study outcomes: completion-based 1/4-year earnings, legacy highest-credential earnings, debt, and campus awards with separate provenance. |
-| `scorecard_search_programs` | Find programs by CIP and credential or keyword, retain degree identity, and rank earnings within each fetched school page. |
+| `scorecard_get_programs` | Paged field-of-study outcomes with school and national completion earnings, legacy highest-credential earnings, debt, and campus awards. |
+| `scorecard_search_programs` | Find programs by CIP and credential or keyword, narrow by location, and rank school earnings within each fetched school page. |
 | `scorecard_get_earnings` | Earnings of federally aided undergraduate entrants working and not enrolled, regardless of completion: 6/8/10-year medians, 6/10-year P25/P75, and non-male/male 6-year medians. |
 | `scorecard_value_analysis` | Combines cost, debt, repayment, and earnings data with debt-to-earnings and net-price-to-earnings ratios. |
 | `scorecard_lookup_cip` | Search all 464 current NCES CIP 2020 four-digit groups by code, keyword, or related program name. Served offline. |
@@ -68,6 +68,7 @@ The [college-scorecard-guide](./skills/college-scorecard-guide/SKILL.md) covers 
 ### `scorecard_search_schools` <sub>tool</sub>
 
 - Search by name, state, ownership, degree level, size, acceptance rate, CIP code, or ZIP and distance (miles or `km`). State lists accept `WA,CA`.
+- Joined ampersands in a school name are spaced before search. For example, `Texas A&M` is sent and echoed as `Texas A & M`.
 - Apply `max_net_price` (inclusive dollars), `min_completion_rate` (inclusive 0–1), and `locale` (`city`, `suburb`, `town`, or `rural`) before paging. These filters require reported values. Negative price ceilings normalize to $0 with a notice.
 - `operating`, `hbcu`, `men_only`, and `women_only` match explicit true or false values. Omit a flag to include unknown values. `operating: false` means the school lacks current operating certification. Verify actual closure separately.
 - Use `scorecard_list_fields` to choose a supported sort such as `latest.cost.avg_net_price.overall:asc`. Omit sort to preserve API order. `page` starts at zero and `per_page` is capped at 100.
@@ -95,17 +96,21 @@ The [college-scorecard-guide](./skills/college-scorecard-guide/SKILL.md) covers 
 ### `scorecard_get_programs` <sub>tool</sub>
 
 - Accepts one school ID, with optional CIP code (dotted or undotted), `credential_level`, and minimum earnings filters. A school with no matching programs returns an empty collection; a nonexistent school is a lookup error.
-- Text results lead with completion-based one- and four-year medians, counts, and availability. Legacy `earnings_1yr_median` and `earnings_count` appear separately with their highest-credential provenance.
+- School completion earnings include one- and four-year medians, counts, and availability. Legacy `earnings_1yr_median` and `earnings_count` carry separate highest-credential provenance.
+- `completion_1yr_national` and `completion_4yr_national` report the provider's national benchmark for the same CIP and credential among federally aided completers working and not enrolled. Median, 25th and 75th percentiles, and count have independent availability. The dictionary leaves the dollar year unspecified for the one-year national percentiles.
+- `metric_scope` distinguishes national benchmarks from school earnings and debt pooled at OPEID6 within CIP and credential, and from campus awards.
 - `min_earnings` and ordering use completion-based one-year earnings, with no legacy fallback. Page with `limit` (default 20, capped at 100) and `offset`; `total` counts matches before paging, and `nextOffset` is null at the end.
-- `median_debt` is completers' cumulative Stafford/Grad PLUS borrowing. `ipeds_awards_year1` and `ipeds_awards_year2` count awards in each year of the pooled debt cohort, not students.
+- `median_debt` is the median cumulative Stafford and Grad PLUS debt completers borrowed at the same academic level across institutions. For credentials 5–8, `median_debt_at_institution` reports borrowing at the institution of completion with separate provenance. `ipeds_awards_year1` and `ipeds_awards_year2` count campus awards for the two cohort years.
 
 ---
 
 ### `scorecard_search_programs` <sub>tool</sub>
 
-- Search by CIP code or program name, with optional integer `credential_level` (1–8 and 99), state, ownership, net price, earnings, and debt filters. `page`/`per_page` paginate schools; `offset`/`limit` page matching program rows within that school page.
+- Search by CIP code or program name, with optional integer `credential_level` (1–8 and 99), state, ownership, net price, earnings, and debt filters. A valid CIP takes precedence over a nonblank program name, and the result reports that the name was ignored.
+- Use `zip` for a U.S. ZIP or ZIP+4. A radius such as `25mi` or `40km` requires a ZIP and accepts nonnegative decimals. Bare numbers mean miles. ZIP alone uses the provider's default radius.
 - Returns school IDs and names with program metrics, `credential_level`, and `credential_title`. Available earnings sort first; availability, debt, and award fields match `scorecard_get_programs`.
-- `min_earnings` filters locally, so totals and pagination are upstream school counts before filtering. Earnings and debt thresholds are inclusive and exclude unknown values. Negative `max_net_price` and `max_debt` normalize to $0 with a notice.
+- `max_debt` uses `median_debt_at_institution` for credentials 5–8 and `median_debt` for other credentials. With a credential selected, the provider filters schools before paging and the server checks each returned program. Without a credential selector, the server applies the appropriate debt measure per row within the fetched school page.
+- `total` counts schools after upstream filters and before local program filters, including `min_earnings` and debt filtering without a credential selector. Earnings and debt thresholds are inclusive and require reported values. Negative `max_net_price` and `max_debt` normalize to $0 with a notice.
 - Follow `next` until null: it drains program rows on the current school page before advancing. `shown` counts returned programs; `schools_shown` counts fetched schools. Rankings use current completion-based one-year earnings within the fetched page only.
 
 ---
@@ -137,7 +142,7 @@ The [college-scorecard-guide](./skills/college-scorecard-guide/SKILL.md) covers 
 
 ### `scorecard_list_fields` <sub>tool</sub>
 
-- Search 94 curated offline field entries by nonblank query (default limit 30, capped at 100). Use before passing custom `fields` to `scorecard_get_school`, including pooled full-time retention for four-year and less-than-four-year institutions.
+- Search 103 curated offline field entries by nonblank query (default limit 30, capped at 100). Use before passing custom `fields` to `scorecard_get_school`, including pooled full-time retention for four-year and less-than-four-year institutions.
 - Returns field paths, descriptions, data types, categories, and observed API sorting support. `tip` flags results containing unsortable fields.
 
 ---
@@ -152,10 +157,10 @@ The [college-scorecard-guide](./skills/college-scorecard-guide/SKILL.md) covers 
 
 ### `scorecard://programs/{id}` <sub>resource</sub>
 
-- First 20 program rows as `application/json`, in provider order, with current/legacy earnings populations, scope, provenance, debt, and campus awards. Legacy nullable metrics retain null; new metrics expose availability.
+- First 20 program rows as `application/json`, in provider order. Both program resource routes carry the school and national completion earnings, legacy highest-credential earnings, debt measures, campus awards, scope, and provenance. Legacy nullable metrics retain null.
 - `id` is the school unit ID from `scorecard_search_schools`
 - `list` returns a handful of example school URIs; use `scorecard_search_schools` to discover others
-- Follow `nextUri` through `scorecard://programs/{id}/page/{offset}/{limit}` until null. Page limits above 100 normalize to 100, with a hard ceiling of 1,000; offsets are zero-based. Tool ordering differs, so do not reuse offsets between tools and resources.
+- Follow `nextUri` through `scorecard://programs/{id}/page/{offset}/{limit}` until null. Resource limits are positive decimal integers and values above 100 normalize to 100. Offsets are zero-based and specific to provider order.
 
 ---
 
@@ -171,9 +176,9 @@ Built on [`@cyanheads/mcp-ts-core`](https://github.com/cyanheads/mcp-ts-core): s
 College Scorecard-specific:
 
 - Full College Scorecard API coverage: ~6,500 Title IV institutions, ~2,800 data fields spanning costs, outcomes, demographics, financial aid, and field-of-study earnings
-- Program completion earnings at one and four years, alongside legacy highest-credential outcomes; each series carries its population and vintage
+- School and national program completion earnings at one and four years, alongside legacy highest-credential outcomes with their own provenance
 - Field pre-selection per tool — curated field sets appropriate to each tool's purpose; optional `fields` override for custom queries
-- Embedded CIP taxonomy (464 groups) and field catalog (94 fields) served offline
+- Embedded CIP taxonomy (464 groups) and field catalog (103 fields) served offline
 - Geographic filtering via U.S. zip code + distance radius
 
 Agent-friendly output:
@@ -315,7 +320,7 @@ All configuration is validated at startup via Zod schemas in `src/config/server-
 | `MCP_JWT_EXPECTED_ISSUER` | Required `iss` claim in JWT mode. Configure it alongside the audience. | none |
 | `MCP_LOG_LEVEL` | Log level (`debug`, `info`, `warning`, `error`, etc.) | `info` |
 | `MCP_GC_PRESSURE_INTERVAL_MS` | Opt-in forced-GC loop interval in ms (Bun only); try `60000` if heap grows under HTTP load | `0` (disabled) |
-| `LOGS_DIR` | Directory for log files. Relative paths resolve from the server package root. | `<server-package-root>/logs` |
+| `LOGS_DIR` | Directory for log files on Bun and Node.js. Relative paths resolve from the server package root. | `<server-package-root>/logs` |
 | `STORAGE_PROVIDER_TYPE` | Storage backend: `in-memory`, `filesystem`, `supabase`, `cloudflare-kv/r2/d1` | `in-memory` |
 | `OTEL_ENABLED` | Enable [OpenTelemetry instrumentation](https://github.com/cyanheads/mcp-ts-core/tree/main/docs/telemetry) | `false` |
 

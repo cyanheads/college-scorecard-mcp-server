@@ -281,6 +281,58 @@ it('keeps resource legacy scalar types and provider ordering across the exact co
     programsPageResource.params!.safeParse({ id: '236948', offset: '-1', limit: '2' }).success,
   ).toBe(false);
 });
+it.each(['0101', '1000', '1001', '5000', '9'.repeat(310)])(
+  'caps resource limit %s and continues at the first unserved row',
+  async (limit) => {
+    const programs = Array.from({ length: 101 }, (_, index) => ({ code: String(index) }));
+    fetchPrograms.mockResolvedValue({
+      results: [{ ...record, 'latest.programs.cip_4_digit': programs }],
+    });
+    const params = programsPageResource.params!.parse({ id: '236948', offset: '0', limit });
+    const page = await programsPageResource.handler(
+      params,
+      createMockContext({ errors: programsPageResource.errors }),
+    );
+    expect(page).toMatchObject({
+      limit: 100,
+      shown: 100,
+      nextUri: 'scorecard://programs/236948/page/100/100',
+      notice: 'Program limit normalized to 100 rows.',
+    });
+  },
+);
+it.each(['0', '000', '-1', '1.5', '1e2', ' 2'])(
+  'explains the resource limit requirement for %j',
+  (limit) => {
+    expect(() => programsPageResource.params!.parse({ id: '236948', offset: '0', limit })).toThrow(
+      /at least 1/,
+    );
+    expect(fetchPrograms).not.toHaveBeenCalled();
+  },
+);
+it.each(['PrivacySuppressed', '41000'])(
+  'retains the legacy resource debt value %j',
+  async (median) => {
+    fetchPrograms.mockResolvedValue({
+      results: [
+        {
+          ...record,
+          'latest.programs.cip_4_digit': [
+            {
+              code: '1107',
+              debt: { staff_grad_plus: { all: { all_inst: { median } } } },
+            },
+          ],
+        },
+      ],
+    });
+    const page = await programsPageResource.handler(
+      { id: '236948', offset: '0', limit: '1' },
+      createMockContext({ errors: programsPageResource.errors }),
+    );
+    expect(page).toMatchObject({ programs: [{ median_debt: median }] });
+  },
+);
 it('returns the declared not-found reason and usable recovery on both tool surfaces', async () => {
   fetchPrograms.mockResolvedValue({ metadata: { total: 0, page: 0, per_page: 1 }, results: [] });
   const result = await runToolContract(getProgramsTool, { id: 999999 });

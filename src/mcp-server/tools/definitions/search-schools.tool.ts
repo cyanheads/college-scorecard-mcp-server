@@ -18,7 +18,10 @@ import {
   operatingCertification,
   operatingCertificationNotice,
 } from '@/mcp-server/institution-context.js';
-import { normalizeSearchOptions } from '@/services/scorecard/input-normalization.js';
+import {
+  normalizeSearchOptions,
+  searchGeographyInput,
+} from '@/services/scorecard/input-normalization.js';
 import { getScorecardService } from '@/services/scorecard/scorecard-service.js';
 import { SCHOOL_LOCALE_RANGES } from '@/services/scorecard/types.js';
 
@@ -77,18 +80,7 @@ export const searchSchoolsTool = tool('scorecard_search_schools', {
       })
       .optional()
       .describe('Acceptance rate range as decimals (0–1). Omit for no filter.'),
-    zip: z
-      .string()
-      .optional()
-      .describe(
-        'Five-digit U.S. ZIP or ZIP+4. Alone uses the provider default radius; blank is unset.',
-      ),
-    distance: z
-      .string()
-      .optional()
-      .describe(
-        'Nonnegative radius: bare miles, mi, or km, including decimals. Requires meaningful zip.',
-      ),
+    ...searchGeographyInput,
     cip_code: z
       .string()
       .optional()

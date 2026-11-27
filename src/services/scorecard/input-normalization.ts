@@ -73,11 +73,28 @@ export function normalizeState(value: string | undefined): string | undefined {
   return [...new Set(tokens)].join(',');
 }
 
-/** Normalize school-side selectors before forwarding or echoing them. */
-export function normalizeSearchOptions(options: ScorecardSearchOptions): ScorecardSearchOptions {
+/** Shared geographic input fields for school and program searches. */
+export const searchGeographyInput = {
+  zip: z
+    .string()
+    .optional()
+    .describe(
+      'Five-digit U.S. ZIP or ZIP+4. Alone uses the provider default radius; blank is unset.',
+    ),
+  distance: z
+    .string()
+    .optional()
+    .describe(
+      'Nonnegative radius: bare miles, mi, or km, including decimals. Requires meaningful zip.',
+    ),
+};
+
+/** Normalize and validate ZIP and radius together before search or query echo. */
+export function normalizeSearchGeography(
+  options: Pick<ScorecardSearchOptions, 'zip' | 'distance'>,
+) {
   const zip = meaningfulText(options.zip);
   const distance = meaningfulText(options.distance)?.toLowerCase();
-  let sort = meaningfulText(options.sort);
   if (zip && !/^\d{5}(?:-\d{4})?$/.test(zip))
     throw validationError('Use a five-digit ZIP or ZIP+4 code.', { reason: 'api_validation' });
   if (distance && !zip)
@@ -90,6 +107,13 @@ export function normalizeSearchOptions(options: ScorecardSearchOptions): Scoreca
       'Use a nonnegative radius in miles or kilometers, such as 5, 5.5mi, or 5km.',
       { reason: 'api_validation' },
     );
+  return { zip, distance };
+}
+
+/** Normalize school-side selectors before forwarding or echoing them. */
+export function normalizeSearchOptions(options: ScorecardSearchOptions): ScorecardSearchOptions {
+  const geography = normalizeSearchGeography(options);
+  let sort = meaningfulText(options.sort);
   if (sort) {
     const match = /^([\w.-]+)(?::(asc|desc))?$/i.exec(sort);
     if (!match)
@@ -103,11 +127,11 @@ export function normalizeSearchOptions(options: ScorecardSearchOptions): Scoreca
     value && [Math.min(...value), Math.max(...value)];
   return {
     ...options,
-    name: meaningfulText(options.name),
+    // The provider misses joined ampersands. Keep punctuation-only filters intact.
+    name: meaningfulText(options.name)?.replace(/(?<=[\p{L}\p{M}\p{N}])&(?=[\p{L}\p{N}])/gu, ' & '),
     state: normalizeState(options.state),
     cipCode: normalizeCip(options.cipCode),
-    zip,
-    distance,
+    ...geography,
     sort,
     sizeRange: range(options.sizeRange),
     acceptanceRateRange: range(options.acceptanceRateRange),

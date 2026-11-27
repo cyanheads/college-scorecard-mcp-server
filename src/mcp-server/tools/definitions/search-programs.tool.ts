@@ -23,12 +23,16 @@ import {
 import {
   meaningfulText,
   normalizeCip,
+  normalizeSearchGeography,
   normalizeState,
+  searchGeographyInput,
 } from '@/services/scorecard/input-normalization.js';
 import { MetricAvailabilitySchema } from '@/services/scorecard/metric-availability.js';
 import {
   CompletionMetricsSchema,
   compareProgramEarnings,
+  ProgramDebtMetricsSchema,
+  programDebtSeries,
   programOutcomes,
   programPage,
 } from '@/services/scorecard/program-outcomes.js';
@@ -66,12 +70,7 @@ const ProgramResultSchema = z.object({
     .describe(
       'Median earnings of graduates working and not enrolled 1 year after their highest credential.',
     ),
-  median_debt: z
-    .number()
-    .optional()
-    .describe(
-      'Median cumulative Stafford/Grad PLUS borrowing among completers across attended institutions at the same academic level.',
-    ),
+  ...ProgramDebtMetricsSchema.shape,
   ipeds_awards_year1: z
     .number()
     .optional()
@@ -135,6 +134,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       .describe(
         'Comma-separated two-letter state codes; case and whitespace normalized, blanks unset.',
       ),
+    ...searchGeographyInput,
     ownership: z
       .number()
       .int()
@@ -156,7 +156,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       .number()
       .optional()
       .describe(
-        'Maximum median cumulative Stafford/Grad PLUS debt across institutions at the same academic level, inclusive; excludes unavailable debt. Negative values normalize to $0.',
+        'Inclusive maximum median Stafford/Grad PLUS debt. Uses debt at the institution for credentials 5–8 and debt across same-level institutions for other credentials. Without a credential selector, filters program rows within each fetched school page; school totals are before this filter. Excludes unavailable debt; negative values normalize to $0.',
       ),
     per_page: z
       .number()
@@ -327,23 +327,27 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
       return 0;
     };
     const requestedLimit = input.limit;
+    const cipCode = normalizeCip(input.cip_code);
+    const programName = meaningfulText(input.program_name);
     input = {
       ...input,
+      ...normalizeSearchGeography(input),
       limit: Math.min(input.limit, 100),
-      cip_code: normalizeCip(input.cip_code),
+      cip_code: cipCode,
       state: normalizeState(input.state),
-      program_name: meaningfulText(input.program_name),
+      program_name: cipCode ? undefined : programName,
       max_net_price: normalizeBound('max_net_price'),
       max_debt: normalizeBound('max_debt'),
     };
     if (requestedLimit > 100) notices.push('Program limit normalized to 100 rows.');
+    if (cipCode && programName)
+      notices.push('program_name was ignored because cip_code was supplied.');
+    if (input.max_debt != null && input.credential_level == null)
+      notices.push(
+        'School totals are before the debt filter, which applies to program rows on this school page.',
+      );
     ctx.enrich({
-      query: Object.fromEntries(
-        Object.entries({
-          ...input,
-          program_name: input.cip_code ? undefined : input.program_name,
-        }).filter(([, value]) => value !== undefined),
-      ),
+      query: Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)),
     });
     ctx.log.info('Searching programs', {
       cip_code: input.cip_code,
@@ -357,6 +361,8 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
         ...(input.cip_code && { cipCode: input.cip_code }),
         ...(input.credential_level != null && { credentialLevel: input.credential_level }),
         ...(input.state && { state: input.state }),
+        zip: input.zip,
+        distance: input.distance,
         ...(input.ownership != null && { ownership: input.ownership }),
         ...(input.max_net_price != null && { maxNetPrice: input.max_net_price }),
         ...(input.max_debt != null && { maxDebt: input.max_debt }),
@@ -375,8 +381,7 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
         if (input.cip_code && p.code?.replaceAll('.', '') !== input.cip_code) continue;
         if (input.credential_level != null && p.credential?.level !== input.credential_level)
           continue;
-        // Apply program_name soft filter if cip_code not provided
-        if (input.program_name && !input.cip_code) {
+        if (input.program_name) {
           const nameMatch = (p.title ?? '')
             .toLowerCase()
             .includes(input.program_name.toLowerCase());
@@ -385,7 +390,10 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
 
         const outcomes = programOutcomes(p);
         const rawEarnings = outcomes.completion_1yr_median;
-        const medianDebt = p.debt?.staff_grad_plus?.all?.all_inst?.median;
+        const medianDebt =
+          programDebtSeries(p.credential?.level) === 'eval_inst'
+            ? outcomes.median_debt_at_institution
+            : outcomes.median_debt;
 
         // Post-fetch earnings filter
         if (input.min_earnings != null && (rawEarnings == null || rawEarnings < input.min_earnings))
@@ -407,7 +415,6 @@ export const searchProgramsTool = tool('scorecard_search_programs', {
           ...(p.title && { program_title: p.title }),
           ...(p.credential?.level != null && { credential_level: p.credential.level }),
           ...(p.credential?.title != null && { credential_title: p.credential.title }),
-          ...(medianDebt != null && { median_debt: medianDebt }),
           ...(p.counts?.ipeds_awards1 != null && { ipeds_awards_year1: p.counts.ipeds_awards1 }),
           ...(p.counts?.ipeds_awards2 != null && { ipeds_awards_year2: p.counts.ipeds_awards2 }),
         });

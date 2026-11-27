@@ -188,6 +188,121 @@ describe('getProgramsTool', () => {
     expect(result.programs[0]!.earnings_availability).toBe('unavailable');
   });
 
+  it('keeps undergraduate all-institutions debt on its existing surface', async () => {
+    serve([
+      {
+        ...csBachelors,
+        debt: {
+          staff_grad_plus: { all: { all_inst: { median: 19500 }, eval_inst: { median: 19000 } } },
+        },
+      },
+    ]);
+    const result = await runToolContract(getProgramsTool, { id: SCHOOL_ID });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({ programs: [{ median_debt: 19500 }] });
+    expect(result.structuredContent).not.toMatchObject({
+      programs: [{ median_debt_at_institution: 19000 }],
+    });
+    expect(result.content[0]).toMatchObject({
+      text: expect.stringContaining('Median cumulative Stafford/Grad PLUS debt: $19,500'),
+    });
+  });
+
+  it('reports graduate at-institution debt independently in both response surfaces', async () => {
+    serve([
+      {
+        ...csMasters,
+        debt: {
+          staff_grad_plus: { all: { all_inst: { median: null }, eval_inst: { median: 96504 } } },
+        },
+      },
+    ]);
+    const result = await runToolContract(getProgramsTool, { id: SCHOOL_ID, credential_level: 5 });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      programs: [{ median_debt_at_institution: 96504 }],
+      provenance: { debt_at_institution: { cell: 'K18', variable: 'DEBT_ALL_STGP_EVAL_MDN' } },
+    });
+    expect(result.structuredContent).not.toMatchObject({
+      programs: [{ median_debt: expect.any(Number) }],
+    });
+    expect(result.content[0]).toMatchObject({
+      text: expect.stringContaining(
+        'Median cumulative Stafford/Grad PLUS debt disbursed at this institution: $96,504',
+      ),
+    });
+  });
+
+  it('renders national benchmarks alongside school earnings with per-statistic availability', async () => {
+    serve([
+      {
+        ...csBachelors,
+        earnings: {
+          '1_yr': {
+            overall_median_earnings: 86200,
+            overall_median_earnings_national: 80182,
+            overall_p25_earnings_national: 'PS',
+            overall_p75_earnings_national: 106060,
+            working_not_enrolled: { overall_count_national: 0 },
+          },
+          '4_yr': { overall_median_earnings_national: null },
+        },
+      },
+    ]);
+    const result = await runToolContract(getProgramsTool, { id: SCHOOL_ID, min_earnings: 85000 });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toMatchObject({
+      programs: [
+        {
+          completion_1yr_median: 86200,
+          completion_1yr_national: {
+            median: 80182,
+            p75: 106060,
+            count: 0,
+            availability: {
+              median: 'available',
+              p25: 'privacy_suppressed',
+              p75: 'available',
+              count: 'available',
+            },
+          },
+          completion_4yr_national: {
+            availability: {
+              median: 'unavailable',
+              p25: 'unavailable',
+              p75: 'unavailable',
+              count: 'unavailable',
+            },
+          },
+        },
+      ],
+    });
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('National CIP × credential 1-year benchmark');
+    expect(text).toContain('$80,182 (available)');
+    expect(text).toContain('P25: Not available (privacy_suppressed)');
+    expect(text).toContain('$106,060 (available)');
+    expect(text).toContain('Population count: 0 (available)');
+    expect(text).toContain('EARN_P25_1YR_NAT (K206)');
+  });
+
+  it('reports the provider error contract for an invalid national statistic', async () => {
+    serve([
+      {
+        ...csBachelors,
+        earnings: { '1_yr': { overall_median_earnings_national: 'not a number' } },
+      },
+    ]);
+    const result = await runToolContract(getProgramsTool, { id: SCHOOL_ID });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      error: { data: { reason: 'api_error' } },
+    });
+    expect(result.content[0]).toMatchObject({
+      text: expect.stringContaining('Unexpected provider metric value'),
+    });
+  });
+
   it('formats output with earnings, debt, and suppression note', () => {
     const output = {
       ope6_id: null,

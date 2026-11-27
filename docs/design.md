@@ -9,8 +9,8 @@
 | `scorecard_search_schools` | Search institutions with provider-side filters and API sorting. Returns core identity, operating certification, and cost metrics. | `query`, `state`, `ownership`, `degree_level`, `size_range`, `acceptance_rate_range`, `zip`, `distance`, `cip_code`, `sort`, `men_only`, `women_only`, `operating`, `hbcu`, `locale`, `max_net_price`, `min_completion_rate`, `per_page`, `page` | `readOnlyHint` |
 | `scorecard_get_school` | Institutional profiles with costs, outcomes, scope, and optional raw projections. Serves the first 100 distinct IDs; reports missing and unprocessed IDs separately. | `id` (string or array), `fields`, `program_limit`, `program_offset` | `readOnlyHint`, `idempotentHint` |
 | `scorecard_compare_schools` | Compare the first five distinct IDs from up to 1,000 raw inputs. Rank eligible prices and outcomes when at least two schools are found. | `ids`, `topic` | `readOnlyHint` |
-| `scorecard_get_programs` | Paged completion-based one-/four-year and legacy highest-credential outcomes, debt, and campus awards, each with provenance. Current one-year completion earnings drive ordering and filters. | `id`, `cip_code`, `min_earnings`, `credential_level`, `limit`, `offset` | `readOnlyHint` |
-| `scorecard_search_programs` | Find programs by CIP × credential or local title filter. School totals remain upstream counts; row continuation drains current matches before advancing the school page. | `cip_code`, `credential_level`, `program_name`, `state`, `ownership`, `max_net_price`, `min_earnings`, `max_debt`, `per_page`, `page`, `limit`, `offset` | `readOnlyHint` |
+| `scorecard_get_programs` | Paged one- and four-year school completion earnings and national benchmarks, legacy highest-credential outcomes, debt, and campus awards. School one-year completion earnings drive ordering and filters. | `id`, `cip_code`, `min_earnings`, `credential_level`, `limit`, `offset` | `readOnlyHint` |
+| `scorecard_search_programs` | Find programs by CIP × credential or local title filter. School totals come from the upstream query. Row continuation drains current matches before advancing the school page. | `cip_code`, `credential_level`, `program_name`, `state`, `ownership`, `zip`, `distance`, `max_net_price`, `min_earnings`, `max_debt`, `per_page`, `page`, `limit`, `offset` | `readOnlyHint` |
 | `scorecard_get_earnings` | Earnings of federally aided undergraduate entrants working and not enrolled, regardless of completion: 6/8/10-year medians, 6/10-year percentiles, non-male/male 6-year medians, and per-metric availability/provenance. `years` selects data-file vintages. | `id`, `years` | `readOnlyHint`, `idempotentHint` |
 | `scorecard_value_analysis` | Combines cost, debt, repayment progress, and earnings for one school, with derived ratios and source figures. `family_income` selects the applicable net price bracket. | `id`, `family_income` | `readOnlyHint` |
 | `scorecard_lookup_cip` | Search all current CIP 2020 four-digit groups by code, title, family, or verified descendant alias before filtering programs. | `query`, `limit`, `offset` | `readOnlyHint`, `openWorldHint: false` |
@@ -22,7 +22,7 @@
 |:-------------|:------------|:-----------|
 | `scorecard://school/{id}` | Institutional profile by unit ID — injectable context for school-specific conversations. | No |
 | `scorecard://programs/{id}` | First program page in provider order. | Follow `nextUri` |
-| `scorecard://programs/{id}/page/{offset}/{limit}` | Program continuation with full matching total and separate series provenance. | Zero-based offset, limit up to 100 |
+| `scorecard://programs/{id}/page/{offset}/{limit}` | Program continuation with full matching total and separate series provenance. | Zero-based offset, positive decimal integer limit clamped at 100 |
 
 ### Prompts
 
@@ -53,7 +53,7 @@ Target users: agents helping with college research, financial planning, career e
 - Null/absent metrics are unavailable with unknown cause. Only explicit `PS` / `PrivacySuppressed` markers establish privacy suppression, without establishing its particular cause.
 - School sorting forwards the sort expression to the API. Program search orders the fetched page locally by earnings.
 - Batch ID lookup normalizes and deduplicates up to 1,000 raw elements, fetches the first 100 distinct IDs, and reports missing processed IDs separately from unchecked excess
-- Geographic filtering accepts ZIP-only provider defaults, ZIP+4, and nonnegative bare/mi/km decimal radii; a meaningful distance requires ZIP
+- Both search tools accept ZIP or ZIP+4 and nonnegative decimal radii in miles or kilometers. Bare radii mean miles, ZIP alone uses the provider default, and a meaningful radius requires ZIP.
 - Programs returned as nested array under school record; filtering by CIP code returns only matching programs unless `all_programs_nested=true` is passed
 - `scorecard_lookup_cip` is served from an embedded CIP code taxonomy (static data, no API call required)
 - `scorecard_list_fields` is served from an embedded field catalog derived from the data dictionary (static data, no API call required)
@@ -190,11 +190,13 @@ Required IDs are positive safe integers. Base-10 strings accept whitespace, lead
 
 Negative school and program `max_net_price`, program `max_debt`, and value-analysis `family_income` normalize to zero with a notice. Historical earnings years are deduplicated in caller order. CIP lookup maps six-digit codes to their four-digit group with a notice. Program selectors continue to accept four-digit codes.
 
+Provider range serialization uses `0.0` for a zero upper endpoint because the API rejects ranges ending in `..0`. The effective query retains numeric zero. School name search spaces joined ampersands before the provider query and echoes the normalized name. Program search forwards the location selectors before school pagination and echoes their normalized values. Invalid ZIP or radius, including a radius without ZIP, fails as `api_validation` before the upstream request. A valid CIP and nonblank program name together produce a notice and the effective query omits the ignored name.
+
 `fetchWithTimeout` bounds the complete exchange, including the body, and composes caller cancellation; `withRetry` retains classified transient failures. HTTP 400/422 validation and 401/403 authentication fail once, while throttling, deadlines, and availability use distinct reasons and retry policy. Safe provider diagnostics survive; credentials and credential-bearing URLs do not. Each API consumer declares its own inline reason/recovery contracts; resource factories attach recovery and request correlation without changing successful sparse JSON.
 
 ### Empty collections and caps
 
-Catalog totals are counted before slicing at serving caps (fields 100, CIP 50), with a 1,000 requested-limit ceiling. CIP offset paging exposes every match. Program tools default to 20 rows and cap at 100 with a 1,000 requested-limit ceiling; selectors and stable ordering precede slicing. Exact-final pages are untruncated. Empty collections succeed, while missing institutions remain lookup errors. Search keeps school `page`/`per_page`/`total` separate from program `offset`/`limit`/`shown`; `next` drains remaining rows before advancing to the next school page, including when local filters leave no rows. The default programs resource serves its first page and links subsequent pages through `scorecard://programs/{id}/page/{offset}/{limit}` in provider order.
+Catalog totals are counted before slicing at serving caps (fields 100, CIP 50), with a 1,000 requested-limit ceiling. CIP offset paging exposes every match. Program tools default to 20 rows and cap at 100 with a 1,000 requested-limit ceiling. Selectors and stable ordering precede slicing. Exact-final pages are untruncated. Empty collections succeed, while missing institutions remain lookup errors. Search keeps school `page`/`per_page`/`total` separate from program `offset`/`limit`/`shown`. Follow `next` to drain the current school page and advance even when local filters leave it empty. The default programs resource links subsequent pages through `scorecard://programs/{id}/page/{offset}/{limit}` in provider order. The URI accepts positive decimal integer limits, including those with leading zeros, and clamps any limit over 100 to 100.
 
 ### `scorecard_search_programs` vs. `scorecard_get_programs`
 
@@ -210,11 +212,15 @@ Program rows expose `earnings_availability`, comparison cells expose `availabili
 
 School search forwards `sort` to the API without a local fallback. The catalog records observed sort support, which can differ from the dictionary's INDEX column. Overall average net price supports sorting. Income-bracket prices, six-year earnings, and pooled full-time retention are available for projection without sort support. Four-year retention covers first-time, full-time bachelor's or equivalent degree seekers. Less-than-four-year retention covers first-time, full-time degree or certificate seekers. Both measure return the next fall.
 
-Program search sorts current one-year completion earnings within the fetched school page and applies `min_earnings` locally. School totals remain upstream counts before local filtering. Program totals and row offsets describe the current school page.
+Program search sorts by school one-year completion earnings within the fetched school page and applies `min_earnings` locally. For `max_debt` with a credential selector, the service adds the corresponding debt series to the upstream filters and checks returned rows against that same series. Without a credential selector, it checks the threshold per row before ordering and paging, using the row's credential to choose the series. Unknown or suppressed debt cannot satisfy the inclusive threshold. School totals reflect only the upstream filters. Program totals and row offsets describe the current school page.
 
 ### Program populations
 
-Program debt uses `debt.staff_grad_plus.all.all_inst.median` to retain same-level borrowing at previously attended institutions. Legacy `earnings_1yr_median` and `earnings_count` retain the highest-credential series. Additive `completion_1yr_*` and `completion_4yr_*` fields use their own working/not-enrolled counts and availability. Missing current earnings never fall back to legacy earnings. `src/data/program-provenance.ts` records separate cohorts, measurement years, dollar bases, and dictionary cells for each series, debt, and campus awards. Earnings/debt pool at OPEID6 within CIP and credential; IPEDS awards are campus counts, not enrollment or unique students. Existing nullable resource scalars remain nullable; all paths preserve zero.
+Program `median_debt` uses `debt.staff_grad_plus.all.all_inst.median` for same-level borrowing across institutions. Credentials 5–8 also expose `median_debt_at_institution` from `debt.staff_grad_plus.all.eval_inst.median`, with separate provenance for borrowing at the institution of completion. The graduate threshold uses the latter. Other credentials use the all-institutions series.
+
+Legacy `earnings_1yr_median` and `earnings_count` retain the highest-credential series. School completion earnings at one and four years each use their own working-and-not-enrolled count and availability. The corresponding `completion_1yr_national` and `completion_4yr_national` fields come directly from the provider's national CIP × credential series. Each national median, 25th and 75th percentile, and count has independent availability. Read the dictionary provenance from `src/data/program-provenance.ts`. The one-year national 25th and 75th percentile cells omit a dollar year, represented as null. A missing value never borrows data from another series, horizon, or school row.
+
+`metric_scope` distinguishes national earnings from school earnings and debt pooled at OPEID6 within CIP and credential, and from campus IPEDS awards. Both program tools and resource routes carry these populations and their provenance. Legacy unreported scalars remain omitted in tools and null in resources. Every path preserves zero.
 
 Program tool text leads with the two completion series, then presents legacy earnings separately. It carries the same scope, provenance, availability, and continuation as the structured result.
 
@@ -226,7 +232,7 @@ Default search rows, profiles, comparisons, value analysis, and the school resou
 
 ### CIP and field catalog as embedded static data
 
-Both lookups use embedded government reference data: all 464 current NCES CIP 2020 four-digit groups and 94 selected field entries. CIP titles and two-digit families match the official CSV exactly. Verified six-digit descendant titles provide keyword aliases while results retain the canonical four-digit group. Deleted and moved-from rows are excluded. Dotted/undotted code queries normalize equivalently. Offline tests fixture the official groups, families, and selected descendants.
+Both lookups use embedded government reference data: all 464 current NCES CIP 2020 four-digit groups and 103 selected field entries. CIP titles and two-digit families match the official CSV exactly. Verified six-digit descendant titles provide keyword aliases while results retain the canonical four-digit group. Deleted and moved-from rows are excluded. Dotted/undotted code queries normalize equivalently. Offline tests fixture the official groups, families, and selected descendants.
 
 ---
 

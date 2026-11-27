@@ -20,9 +20,11 @@ import {
   meaningfulText,
   normalizeCip,
   normalizeSchoolId,
+  normalizeSearchGeography,
   normalizeSearchOptions,
   normalizeState,
 } from './input-normalization.js';
+import { programDebtSeries } from './program-outcomes.js';
 import {
   SCHOOL_LOCALE_RANGES,
   type ScorecardApiResponse,
@@ -30,6 +32,11 @@ import {
 } from './types.js';
 
 const BASE_URL = 'https://api.data.gov/ed/collegescorecard/v1/schools';
+
+/** The provider rejects an integer zero upper endpoint but accepts decimal zero. */
+function rangeThrough(max: number, min?: number): string {
+  return `${min ?? ''}..${max === 0 ? '0.0' : max}`;
+}
 
 /** Default curated fields for school search results */
 const SEARCH_DEFAULT_FIELDS = [
@@ -290,11 +297,11 @@ export class ScorecardService {
       params['school.degrees_awarded.predominant'] = options.degreeLevel;
     if (options.sizeRange) {
       const [min, max] = options.sizeRange;
-      params['latest.student.size__range'] = `${min}..${max}`;
+      params['latest.student.size__range'] = rangeThrough(max, min);
     }
     if (options.acceptanceRateRange) {
       const [min, max] = options.acceptanceRateRange;
-      params['latest.admissions.admission_rate.overall__range'] = `${min}..${max}`;
+      params['latest.admissions.admission_rate.overall__range'] = rangeThrough(max, min);
     }
     if (options.zip) params.zip = options.zip;
     if (options.distance) params.distance = options.distance;
@@ -309,7 +316,7 @@ export class ScorecardService {
     if (options.locale != null)
       params['school.locale__range'] = SCHOOL_LOCALE_RANGES[options.locale];
     if (options.maxNetPrice != null)
-      params['latest.cost.avg_net_price.overall__range'] = `..${options.maxNetPrice}`;
+      params['latest.cost.avg_net_price.overall__range'] = rangeThrough(options.maxNetPrice);
     if (options.minCompletionRate != null)
       params['latest.completion.rate_suppressed.overall__range'] = `${options.minCompletionRate}..`;
     if (options.extraParams) {
@@ -409,7 +416,7 @@ export class ScorecardService {
 
   /** Search programs across schools */
   searchPrograms(
-    options: {
+    options: Pick<ScorecardSearchOptions, 'zip' | 'distance'> & {
       cipCode?: string | undefined;
       programName?: string;
       credentialLevel?: number;
@@ -424,6 +431,7 @@ export class ScorecardService {
   ): Promise<ScorecardApiResponse> {
     options = {
       ...options,
+      ...normalizeSearchGeography(options),
       state: normalizeState(options.state),
       cipCode: normalizeCip(options.cipCode),
     };
@@ -446,12 +454,15 @@ export class ScorecardService {
     if (options.credentialLevel != null)
       params['latest.programs.cip_4_digit.credential.level'] = options.credentialLevel;
     if (options.state) params['school.state'] = options.state;
+    if (options.zip) params.zip = options.zip;
+    if (options.distance) params.distance = options.distance;
     if (options.ownership != null) params['school.ownership'] = options.ownership;
     if (options.maxNetPrice != null)
-      params['latest.cost.avg_net_price.overall__range'] = `..${options.maxNetPrice}`;
-    if (options.maxDebt != null) {
-      params['latest.programs.cip_4_digit.debt.staff_grad_plus.all.all_inst.median__range'] =
-        `..${options.maxDebt}`;
+      params['latest.cost.avg_net_price.overall__range'] = rangeThrough(options.maxNetPrice);
+    if (options.maxDebt != null && options.credentialLevel != null) {
+      const series = programDebtSeries(options.credentialLevel);
+      params[`latest.programs.cip_4_digit.debt.staff_grad_plus.all.${series}.median__range`] =
+        rangeThrough(options.maxDebt);
     }
 
     return this.fetchApi(params, ctx);
